@@ -1,4 +1,4 @@
-const sampleRate = 44100; // does not work for 88200, or rather, different pitches from 44100
+const sampleRate = 48000; // does not work for 88200, or rather, different pitches from 44100
 let isPlaying = false;
 let audioCtx, scriptNode, gainNode, currentSample = 0;
 let highpassNode;
@@ -18,9 +18,12 @@ const sawHistory = Array.from({length: 7}, () => []);
 const sawSum = [];
 const sumSum = [];
 
-// JS: Add at the top
-let isLogY = true;
-
+function freqToX(freq, minFreq, maxFreq, width) {
+    const minLog = Math.log10(minFreq);
+    const maxLog = Math.log10(maxFreq);
+    const freqLog = Math.log10(freq);
+    return ((freqLog - minLog) / (maxLog - minLog)) * width;
+}
 
 function pitchUpdateFromSlider(value) {
     const fraction = value / 1200;
@@ -68,11 +71,6 @@ for (let i = 0; i < 7; i++) {
         sawEnabled[i] = e.target.checked;
     };
 }
-
-document.getElementById('logY').onchange = function (e) {
-    isLogY = e.target.checked;
-    console.log('New y scale log: ', isLogY);
-};
 
 document.getElementById('highpassToggle').onchange = function (e) {
     isHighpassOn = e.target.checked;
@@ -195,18 +193,20 @@ document.getElementById('play').onclick = () => {
     analyserNode.connect(gainNode);
     gainNode.connect(audioCtx.destination);
 
+
 // After filling the background, add this to draw x-axis frequency labels
     function drawFrequencyLabels() {
         const numTicks = 10;
+        const minFreq = 20;
+        const maxFreq = sampleRate / 2;
         ctx.font = '12px sans-serif';
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
 
         for (let i = 0; i <= numTicks; i++) {
-            const x = Math.floor(i * canvas.width / numTicks);
-            const bin = Math.floor(i * analyserNode.frequencyBinCount / numTicks);
-            const freq = Math.round(bin * sampleRate / analyserNode.fftSize);
+            const freq = minFreq * Math.pow(maxFreq / minFreq, i / numTicks);
+            const x = freqToX(freq, minFreq, maxFreq, canvas.width);
 
             // Draw tick
             ctx.strokeStyle = '#888';
@@ -216,7 +216,7 @@ document.getElementById('play').onclick = () => {
             ctx.stroke();
 
             // Draw label
-            ctx.fillText(freq + ' Hz', x, canvas.height - 13);
+            ctx.fillText(Math.round(freq) + ' Hz', x, canvas.height - 13);
         }
     }
 
@@ -227,29 +227,22 @@ document.getElementById('play').onclick = () => {
         ctx.fillStyle = '#111';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        if (isLogY) {
-            const dataArray = new Float32Array(bufferLength);
-            analyserNode.getFloatFrequencyData(dataArray);
-            const minDb = analyserNode.minDecibels;
-            const maxDb = analyserNode.maxDecibels;
-            for (let i = 0; i < bufferLength; i++) {
-                const db = dataArray[i];
-                const percent = (db - minDb) / (maxDb - minDb);
-                const height = percent * canvas.height;
-                ctx.fillStyle = '#0ff';
-                ctx.fillRect(i * canvas.width / bufferLength, canvas.height - height, canvas.width / bufferLength, height);
-            }
-        } else {
-            const dataArray = new Uint8Array(bufferLength);
-            analyserNode.getByteFrequencyData(dataArray);
-            for (let i = 0; i < bufferLength; i++) {
-                const value = dataArray[i];
-                const percent = value / 255;
-                const height = percent * canvas.height;
-                ctx.fillStyle = '#0ff';
-                ctx.fillRect(i * canvas.width / bufferLength, canvas.height - height, canvas.width / bufferLength, height);
-            }
+        const minFreq = 20;
+        const maxFreq = sampleRate / 2;
+
+        const dataArray = new Uint8Array(bufferLength);
+        analyserNode.getByteFrequencyData(dataArray);
+        for (let i = 0; i < bufferLength; i++) {
+            const freq = i * sampleRate / analyserNode.fftSize;
+            if (freq < minFreq) continue;
+            const x = freqToX(freq, minFreq, maxFreq, canvas.width);
+            const value = dataArray[i];
+            const percent = value / 255;
+            const height = percent * canvas.height;
+            ctx.fillStyle = '#0ff';
+            ctx.fillRect(x, canvas.height - height, 2, height);
         }
+
         drawFrequencyLabels();
         if (isPlaying) requestAnimationFrame(drawSpectrum);
     }
@@ -285,9 +278,21 @@ document.getElementById('stop').onclick = () => {
     }
 
     // In stop button handler, disconnect and nullify lowpassNode
-    if (lowpassNode) {
-        lowpassNode.disconnect();
-        lowpassNode = null;
+    if (lowpassNode1) {
+        lowpassNode1.disconnect();
+        lowpassNode1 = null;
+    }
+    if (lowpassNode2) {
+        lowpassNode2.disconnect();
+        lowpassNode2 = null;
+    }
+    if (lowpassNode3) {
+        lowpassNode3.disconnect();
+        lowpassNode3 = null;
+    }
+    if (lowpassNode4) {
+        lowpassNode4.disconnect();
+        lowpassNode4 = null;
     }
 
     currentSample = 0;
