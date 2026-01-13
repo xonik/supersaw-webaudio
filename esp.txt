@@ -1,0 +1,46 @@
+7c = 01111100
+ff = 11111111
+0xf = 00001111
+
+P = op
+M = mem
+S = shiftbits
+C = coefficient
+x = unused?
+
+Instruction format
+xPPPPPMM MMMMMMSS CCCCCCCC
+
+Shiftbits
+0 << 2 = 0
+1 << 2 = 4
+2 << 2 = 8
+3 << 2 = 12
+
+0x3567 >> 0 & 0xf = 0x7
+0x3567 >> 4 & 0xf = 0x6
+0x3567 >> 8 & 0xf = 0x5
+0x3567 >> 12 & 0xf = 0x3
+
+Så shiftbits->shift:
+0 -> 7
+1 -> 6
+2 -> 5
+3 -> 3
+
+mem slår opp i iramPos og gir mempos
+
+mem 1,2,3,4 er special cases som gir
+
+multInputA_24 = 16, 1024, 65536 og 4 194 304
+
+alle andre verdier slår opp multInputA_24 = i iram -> iramPos[mempos]
+
+multInputB_24 = coefficient
+
+Default acc og clr er false
+
+Opcodes
+
+0: NOP
+4: LOAD

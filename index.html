@@ -2,14 +2,21 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>WebAudio Sample Callback</title>
+    <title>Web audio super saw testing</title>
 </head>
 <body>
-<h1>WebAudio Sample Callback Demo</h1>
-<label for="volume">Volume:</label>
-<input type="range" id="volume" min="0" max="1" step="0.01" value="0.5">
+<h1>Web audio super saw testing</h1>
 <button id="play">Play</button>
 <button id="stop">Stop</button>
+<br>
+<br>
+<label for="volume">Volume:</label>
+<input type="range" id="volume" min="0" max="1" step="0.01" value="0.5">
+<br>
+<label for="balance">Algo mix:</label>
+Script - <input type="range" id="balance" min="0" max="1" step="0.01" value="0.5"> - Native
+<br>
+<br>
 <!-- Place this after your stop button -->
 <div id="saw-checkboxes">
     <label><input type="checkbox" id="saw0" checked> Saw 0</label>
@@ -19,8 +26,8 @@
     <label><input type="checkbox" id="saw4" checked> Saw 4</label>
     <label><input type="checkbox" id="saw5" checked> Saw 5</label>
     <label><input type="checkbox" id="saw6" checked> Saw 6</label>
+    <label><input type="checkbox" id="highpassToggle" checked> High-pass filter</label>
 </div>
-<label><input type="checkbox" id="highpassToggle" checked> High-pass filter</label>
 <br>
 <label for="filterFreqOffset">Filter Freq Offset</label>
 <input type="range" id="filterFreqOffset" min="0.1" max="1" step="0.009" value="1" style="width: 200px;">
@@ -31,14 +38,18 @@
 <input type="range" id="lowpassCutoff" min="100" max="20000" step="1" value="20000" style="width: 200px;">
 <span id="lowpassCutoffValue">20000</span>
 <br>
-<input id="pitch" type="range" min="0" max="1200" value="0" style="width:100vw; display:block; margin:20px 0;">
+<br>
 <label for="pitch">Pitch</label>
-
-<input id="detune" type="range" min="0" max="128" value="0" style="width:100vw; display:block; margin:20px 0;">
+<input id="pitch" type="range" min="0" max="1200" value="0" style="width:80vw; display:block;">
+<br>
 <label for="detune">Detune</label>
+<input id="detune" type="range" min="0" max="128" value="0" style="width:80vw; display:block;">
+<br>
 
-<canvas id="plot"></canvas>
+<canvas id="plot1"></canvas>
+<canvas id="plot2"></canvas>
 
+<script src="sliders.js"></script>
 <script src="audio.js"></script>
 </body>
 </html>

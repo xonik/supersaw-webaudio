@@ -1,0 +1,14 @@
+
+DAC: file:///Users/joakim/Downloads/UPD63200.PDF
+
+18/16bit,
+
+Fs 352.8kHz, 8 times 44.1kHz
+2 channels
+4/8 Fs sel, så kan kjøre på 44.1 eller 88.2kHz antakelig
+
+
+4/6FS og 18/16SEL er high
+
+
+Bittelitt output-filtrering

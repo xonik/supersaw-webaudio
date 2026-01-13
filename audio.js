@@ -2,13 +2,18 @@ const sampleRate = 48000; // does not work for 88200, or rather, different pitch
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate});
 let isPlaying = false;
 
-const canvas = document.getElementById('plot');
-canvas.width = window.innerWidth;
-canvas.height = 150;
-const ctx = canvas.getContext('2d');
-ctx.fillStyle = '#111';
-ctx.fillRect(0, 0, canvas.width, canvas.height);
+const createPlotCanvas = (id) => {
+    const canvas = document.getElementById(id);
+    canvas.width = window.innerWidth;
+    canvas.height = 150;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    return {canvas, ctx};
+}
 
+const {canvas: canvasPlot1, ctx: ctxPlot1} = createPlotCanvas('plot1');
+const {canvas: canvasPlot2, ctx: ctxPlot2} = createPlotCanvas('plot2');
 
 const sawEnabled = Array(7).fill(true);
 const saw = [0, Math.random(), Math.random(), Math.random(), Math.random(), Math.random(), Math.random()];
@@ -112,7 +117,7 @@ function createScriptSawNode() {
 
             sum += saw[i];
         }
-        return sum;
+        return sum / 7;
     }
 
     let scriptNode = audioCtx.createScriptProcessor(1024, 0, 1);
@@ -176,11 +181,6 @@ function createFilter(type, poles, initialFrequency) {
         lowpassNode.type = type;
         lowpassNode.frequency.value = initialFrequency;
         filters.push(lowpassNode)
-
-        if (i > 0) {
-            filters[i - 1].connect(lowpassNode);
-        }
-        filters.push(lowpassNode);
     }
 
     function updateFrequency() {
@@ -200,10 +200,10 @@ function createFilter(type, poles, initialFrequency) {
     }
 
     function connect(otherNode) {
-        filters[0].connect(otherNode)
         for (let i = 1; i < poles; i++) {
-            filters[i].connect(filters[i - 1])
+            filters[i-1].connect(filters[i])
         }
+        filters[poles - 1].connect(otherNode)
     }
 
     function disconnect() {
@@ -223,104 +223,9 @@ function createFilter(type, poles, initialFrequency) {
         setFrequency,
         setOffset,
         toggleOn,
-        node: filters[filters.length - 1]
+        node: filters[0]
     }
 }
-
-
-// Add event listeners for checkboxes
-for (let i = 0; i < 7; i++) {
-    document.getElementById('saw' + i).onchange = function (e) {
-        sawEnabled[i] = e.target.checked;
-        console.log(`Setting saw ${i} to ${sawEnabled[i]}`)
-    };
-}
-
-function sliderHandler(id, callback) {
-    const slider = document.getElementById(id);
-    const subscribers = [];
-    slider.oninput = function () {
-        const value = parseFloat(this.value);
-        callback(value, subscribers)
-    };
-
-    return {
-        subscribe: (cb) => {
-            console.log(`Subscribed to ${id}`, cb)
-            subscribers.push(cb);
-            callback(slider.value, subscribers)
-        },
-        unsubscribe: (cb) => {
-            const index = subscribers.indexOf(cb);
-            if (index > -1) {
-                subscribers.splice(index, 1);
-            }
-        }
-    }
-}
-
-
-function toggleHandler(id, callback) {
-    const toggle = document.getElementById(id);
-    const subscribers = [];
-    toggle.onchange = function (e) {
-        const on = e.target.checked;
-        callback(on, subscribers)
-    };
-
-    return {
-        subscribe: (cb) => {
-            subscribers.push(cb);
-            callback(toggle.value, subscribers)
-        },
-        unsubscribe: (cb) => {
-            const index = subscribers.indexOf(cb);
-            if (index > -1) {
-                subscribers.splice(index, 1);
-            }
-        }
-    }
-}
-
-const volumeSlider = sliderHandler('volume', (value, subscribers) => {
-    subscribers.forEach(node => node.gain.value = value)
-    console.log(`Setting output volume to ${value}`)
-});
-
-const detuneSlider = sliderHandler('detune', (value, subscribers) => {
-    const detune = value / 128;
-    subscribers.forEach(node => node.setDetuneAmount(detune))
-    console.log(`Setting detune to ${detune}`)
-});
-
-const pitchSlider = sliderHandler('pitch', (value, subscribers) => {
-    const fraction = value / 1200;
-    const lowerstFreq = 20;
-    const highestFreq = 10000;
-    const freq = lowerstFreq + (highestFreq - lowerstFreq) * fraction;
-    console.log(`Setting pitch to ${freq}`)
-
-    subscribers.forEach((node) => node.setFrequency(freq))
-
-});
-
-const hpfOffsetSlider = sliderHandler('filterFreqOffset', (value, subscribers) => {
-    console.log(`Setting highpass offset to ${value}`)
-    subscribers.forEach(node => node.setOffset(value))
-})
-
-
-const highpassToggle = toggleHandler('highpassToggle', (on, subscribers) => {
-    console.log(`Setting use highpass filter to ${on}`)
-    subscribers.forEach(node => node.toggleOn(on))
-});
-
-
-const lpfSlider = sliderHandler('lowpassCutoff', (value, subscribers) => {
-    subscribers.forEach(node => node.setFrequency(value))
-    console.log(`Setting lowpass to ${value}Hz`)
-})
-
 
 function freqToX(freq, minFreq, maxFreq, width) {
     const minLog = Math.log10(minFreq);
@@ -329,10 +234,9 @@ function freqToX(freq, minFreq, maxFreq, width) {
     return ((freqLog - minLog) / (maxLog - minLog)) * width;
 }
 
-function createAnalyzerNode() {
-    analyserNode = audioCtx.createAnalyser();
+function createAnalyzerNode(canvas, ctx) {
+    const analyserNode = audioCtx.createAnalyser();
     analyserNode.fftSize = 2048; // Higher = more detail
-    const bufferLength = analyserNode.frequencyBinCount;
 
     function drawFrequencyLabels() {
         const numTicks = 10;
@@ -409,7 +313,7 @@ document.getElementById('play').onclick = () => {
     let lpfNode1 = createFilter('lowpass', 4, 20000)
     lpfSlider.subscribe(lpfNode1)
 
-    let analyserNode1 = createAnalyzerNode()
+    let analyserNode1 = createAnalyzerNode(canvasPlot1, ctxPlot1)
     let gainNode1 = audioCtx.createGain();
 
     let oscillatorBankNode = createOscillatorBank(0, 1, 1)
@@ -424,23 +328,28 @@ document.getElementById('play').onclick = () => {
     let lpfNode2 = createFilter('lowpass', 4, 20000)
     lpfSlider.subscribe(lpfNode2)
 
-    let analyserNode2 = createAnalyzerNode()
+    let analyserNode2 = createAnalyzerNode(canvasPlot2, ctxPlot2)
     let gainNode2 = audioCtx.createGain();
 
     let outputGainNode = audioCtx.createGain();
     volumeSlider.subscribe(outputGainNode)
 
-    scriptNode.connect(outputGainNode);
+    balanceSlider.subscribe(gainNode1)
+
+    balanceSlider.subscribe(gainNode2)
+
+    scriptNode.connect(hpfNode1.node);
     hpfNode1.connect(lpfNode1.node);
     lpfNode1.connect(analyserNode1)
     analyserNode1.connect(gainNode1);
     gainNode1.connect(outputGainNode)
-    gainNode1.gain.value = 1
+
     oscillatorBankNode.connect(hpfNode2.node);
     hpfNode2.connect(lpfNode2.node);
     lpfNode2.connect(analyserNode2)
     analyserNode2.connect(gainNode2);
     gainNode2.connect(outputGainNode)
+
     outputGainNode.connect(audioCtx.destination);
 
     document.getElementById('stop').onclick = () => {
@@ -464,6 +373,8 @@ document.getElementById('play').onclick = () => {
 
         lpfSlider.unsubscribe(lpfNode2)
 
+        balanceSlider.unsubscribe(gainNode1)
+        balanceSlider.unsubscribe(gainNode2)
         volumeSlider.unsubscribe(outputGainNode)
 
         scriptNode.disconnect();
