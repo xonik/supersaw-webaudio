@@ -23,28 +23,6 @@ function sliderHandler(id, callback) {
 }
 
 
-function toggleHandler(id, callback) {
-    const toggle = document.getElementById(id);
-    const subscribers = [];
-    toggle.onchange = function (e) {
-        const on = e.target.checked;
-        callback(on, subscribers)
-    };
-
-    return {
-        subscribe: (cb) => {
-            subscribers.push(cb);
-            callback(toggle.value, subscribers)
-        },
-        unsubscribe: (cb) => {
-            const index = subscribers.indexOf(cb);
-            if (index > -1) {
-                subscribers.splice(index, 1);
-            }
-        }
-    }
-}
-
 const volumeSlider = sliderHandler('volume', (value, subscribers) => {
     subscribers.forEach(node => node.gain.value = value)
     console.log(`Setting output volume to ${value}`)
@@ -78,22 +56,70 @@ const hpfOffsetSlider = sliderHandler('filterFreqOffset', (value, subscribers) =
     subscribers.forEach(node => node.setOffset(value))
 })
 
+const lpfSlider = sliderHandler('lowpassCutoff', (value, subscribers) => {
+    subscribers.forEach(node => node.setFrequency(value))
+    console.log(`Setting lowpass to ${value}Hz`)
+})
 
-// Add event listeners for checkboxes
-for (let i = 0; i < 7; i++) {
-    document.getElementById('saw' + i).onchange = function (e) {
-        sawEnabled[i] = e.target.checked;
-        console.log(`Setting saw ${i} to ${sawEnabled[i]}`)
+function toggleHandler(id, callback) {
+    const toggle = document.getElementById(id);
+    const subscribers = [];
+    toggle.onchange = function (e) {
+        const on = e.target.checked;
+        callback(on, subscribers)
     };
+
+    return {
+        subscribe: (cb) => {
+            subscribers.push(cb);
+            callback(toggle.value, subscribers)
+        },
+        unsubscribe: (cb) => {
+            const index = subscribers.indexOf(cb);
+            if (index > -1) {
+                subscribers.splice(index, 1);
+            }
+        }
+    }
 }
+
+function createSawsToggler() {
+    const subscribers = [];
+    const toggles = [];
+
+    const callback = (i, on, subscribers) => {
+        console.log(`Setting saws to ${on}`)
+        subscribers.forEach(node => node.toggleOn(i, on))
+    }
+
+    for (let i = 0; i < 7; i++) {
+        toggles.push(document.getElementById('saw' + i))
+        console.log('Initial sawtoggle', i, toggles[i].value)
+        toggles[i].onchange = function (e) {
+            callback(i, e.target.checked, subscribers);
+        };
+    }
+
+    return {
+        subscribe: (cb) => {
+            subscribers.push(cb);
+            for(let i = 0; i < 7; i++) {
+                console.log('Subscribed to toggle', i, cb, toggles[i].value)
+                callback(i, toggles[i].value, subscribers)
+            }
+        },
+        unsubscribe: (cb) => {
+            const index = subscribers.indexOf(cb);
+            if (index > -1) {
+                subscribers.splice(index, 1);
+            }
+        }
+    }
+}
+
+const sawsToggler = createSawsToggler();
 
 const highpassToggle = toggleHandler('highpassToggle', (on, subscribers) => {
     console.log(`Setting use highpass filter to ${on}`)
     subscribers.forEach(node => node.toggleOn(on))
 });
-
-
-const lpfSlider = sliderHandler('lowpassCutoff', (value, subscribers) => {
-    subscribers.forEach(node => node.setFrequency(value))
-    console.log(`Setting lowpass to ${value}Hz`)
-})

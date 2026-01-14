@@ -15,7 +15,6 @@ const createPlotCanvas = (id) => {
 const {canvas: canvasPlot1, ctx: ctxPlot1} = createPlotCanvas('plot1');
 const {canvas: canvasPlot2, ctx: ctxPlot2} = createPlotCanvas('plot2');
 
-const sawEnabled = Array(7).fill(true);
 const saw = [0, Math.random(), Math.random(), Math.random(), Math.random(), Math.random(), Math.random()];
 const detune_table = [0, 318, -318, 1020, -1029, 1760, -1800].map(v => v / 16384); // divide by 16384 to get approx the same as above
 
@@ -40,6 +39,7 @@ function createOscillatorBank(initialFrequency, initialDetuneAmount, initialMix)
     let detuneAmount = initialDetuneAmount;
     const oscillators = [];
     const gains = [];
+    const oscillatorOn = [1, 0, 0, 0, 0, 0, 0]
 
     // This node is just used for mixing
     const outputNode = audioCtx.createGain();
@@ -50,6 +50,13 @@ function createOscillatorBank(initialFrequency, initialDetuneAmount, initialMix)
         oscillators.push(oscillatorNode);
         gains.push(gainNode);
         gainNode.connect(outputNode)
+    }
+
+    function updateGain() {
+        gains[0].gain.value = summingGain * oscillatorOn[0]
+        for(let i = 1; i < 7; i++) {
+            gains[i].gain.value = summingGain * mix * oscillatorOn[i];
+        }
     }
 
     function updateFrequency() {
@@ -69,10 +76,8 @@ function createOscillatorBank(initialFrequency, initialDetuneAmount, initialMix)
     }
 
     function setMix(mixAmount) {
-        gains[0].gain.value = summingGain
-        for (let i = 1; i < 7; i++) {
-            gains[i].gain.value = summingGain * mixAmount
-        }
+        mix = mixAmount
+        updateGain()
     }
 
     function connect(node) {
@@ -89,13 +94,18 @@ function createOscillatorBank(initialFrequency, initialDetuneAmount, initialMix)
         }
     }
 
+    function toggleOn(oscIndex, on) {
+        oscillatorOn[oscIndex] = on ? 1 : 0
+        updateGain()
+    }
 
     return {
         connect,
         disconnect,
         setFrequency,
         setDetuneAmount,
-        setMix
+        setMix,
+        toggleOn,
     };
 }
 
@@ -104,11 +114,12 @@ function createScriptSawNode() {
     let detuneAmount = 0;
     let frequency = 0;
     let pitch = 0;
+    let oscillatorOn = [true, false, false, false, false, false, false,]
 
     function next() {
         let sum = 0
         for (let i = 0; i < 7; i++) {
-            if (!sawEnabled[i]) continue;
+            if (!oscillatorOn[i]) continue;
             let voice_detune = pitch * detune_table[i] * detuneAmount;
             saw[i] += (pitch + voice_detune);
 
@@ -158,12 +169,18 @@ function createScriptSawNode() {
         scriptNode = undefined
     }
 
+    function toggleOn(oscIndex, on) {
+        console.log(`Toggling script osc ${oscIndex} to ${on}`)
+        oscillatorOn[oscIndex] = on
+    }
+
     return {
         setDetuneAmount,
         setFrequency,
         connect,
         disconnect,
-        setMix
+        setMix,
+        toggleOn,
     }
 }
 
@@ -201,7 +218,7 @@ function createFilter(type, poles, initialFrequency) {
 
     function connect(otherNode) {
         for (let i = 1; i < poles; i++) {
-            filters[i-1].connect(filters[i])
+            filters[i - 1].connect(filters[i])
         }
         filters[poles - 1].connect(otherNode)
     }
@@ -213,7 +230,7 @@ function createFilter(type, poles, initialFrequency) {
         }
     }
 
-    function toggleOn(value){
+    function toggleOn(value) {
         on = value;
     }
 
@@ -304,6 +321,7 @@ document.getElementById('play').onclick = () => {
     let scriptNode = createScriptSawNode()
     detuneSlider.subscribe(scriptNode)
     pitchSlider.subscribe(scriptNode)
+    sawsToggler.subscribe(scriptNode)
 
     let hpfNode1 = createFilter('highpass', 1, 10)
     pitchSlider.subscribe(hpfNode1)
@@ -319,6 +337,7 @@ document.getElementById('play').onclick = () => {
     let oscillatorBankNode = createOscillatorBank(0, 1, 1)
     detuneSlider.subscribe(oscillatorBankNode)
     pitchSlider.subscribe(oscillatorBankNode)
+    sawsToggler.subscribe(oscillatorBankNode)
 
     let hpfNode2 = createFilter('highpass', 1, 10)
     pitchSlider.subscribe(hpfNode2)
@@ -354,10 +373,11 @@ document.getElementById('play').onclick = () => {
 
     document.getElementById('stop').onclick = () => {
         console.log(`Stop pressed, isPlaying is ${isPlaying}`)
-        if(!isPlaying) return
+        if (!isPlaying) return
         isPlaying = false
         console.log('Stop, look and listen')
 
+        sawsToggler.unsubscribe(scriptNode)
         detuneSlider.unsubscribe(scriptNode)
         pitchSlider.unsubscribe(scriptNode)
         pitchSlider.unsubscribe(hpfNode1)
@@ -365,6 +385,7 @@ document.getElementById('play').onclick = () => {
         highpassToggle.unsubscribe(hpfNode1)
         lpfSlider.unsubscribe(lpfNode1)
 
+        sawsToggler.unsubscribe(oscillatorBankNode)
         detuneSlider.unsubscribe(oscillatorBankNode)
         pitchSlider.unsubscribe(oscillatorBankNode)
         pitchSlider.unsubscribe(hpfNode2)
