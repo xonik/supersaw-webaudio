@@ -1,6 +1,8 @@
 const sampleRate = 48000; // does not work for 88200, or rather, different pitches from 44100
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate});
 let isPlaying = false;
+let isLogScaleX = true;
+let isLogScaleY = false;
 
 const createPlotCanvas = (id) => {
     const canvas = document.getElementById(id);
@@ -14,6 +16,7 @@ const createPlotCanvas = (id) => {
 
 const {canvas: canvasPlot1, ctx: ctxPlot1} = createPlotCanvas('plot1');
 const {canvas: canvasPlot2, ctx: ctxPlot2} = createPlotCanvas('plot2');
+const {canvas: canvasPlot3, ctx: ctxPlot3} = createPlotCanvas('plot3');
 
 const saw = [0, Math.random(), Math.random(), Math.random(), Math.random(), Math.random(), Math.random()];
 const detune_table = [0, 318, -318, 1020, -1029, 1760, -1800].map(v => v / 16384); // divide by 16384 to get approx the same as above
@@ -244,72 +247,136 @@ function createFilter(type, poles, initialFrequency) {
     }
 }
 
+// Update freqToX to support both scales
 function freqToX(freq, minFreq, maxFreq, width) {
-    const minLog = Math.log10(minFreq);
-    const maxLog = Math.log10(maxFreq);
-    const freqLog = Math.log10(freq);
-    return ((freqLog - minLog) / (maxLog - minLog)) * width;
+    if (isLogScaleX) {
+        const minLog = Math.log10(minFreq);
+        const maxLog = Math.log10(maxFreq);
+        const freqLog = Math.log10(freq);
+        return ((freqLog - minLog) / (maxLog - minLog)) * width;
+    } else {
+        return ((freq - minFreq) / (maxFreq - minFreq)) * width;
+    }
 }
 
-function createAnalyzerNode(canvas, ctx) {
+function createAnalyzerNode(canvas, ctx, startFreq = 20, endFreq = sampleRate / 2, fftSize = 2048) {
     const analyserNode = audioCtx.createAnalyser();
-    analyserNode.fftSize = 2048; // Higher = more detail
+    analyserNode.fftSize = fftSize;
+    analyserNode.maxDecibels = -30;
 
     function drawFrequencyLabels() {
         const numTicks = 10;
-        const minFreq = 20;
-        const maxFreq = sampleRate / 2;
         ctx.font = '12px sans-serif';
         ctx.fillStyle = '#fff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
 
         for (let i = 0; i <= numTicks; i++) {
-            const freq = minFreq * Math.pow(maxFreq / minFreq, i / numTicks);
-            const x = freqToX(freq, minFreq, maxFreq, canvas.width);
-
-            // Draw tick
+            const freq = startFreq * Math.pow(endFreq / startFreq, i / numTicks);
+            const x = freqToX(freq, startFreq, endFreq, canvas.width);
             ctx.strokeStyle = '#888';
             ctx.beginPath();
             ctx.moveTo(x, canvas.height - 15);
             ctx.lineTo(x, canvas.height);
             ctx.stroke();
-
-            // Draw label
             ctx.fillText(Math.round(freq) + ' Hz', x, canvas.height - 13);
         }
     }
 
+    function db2dec(dB){
+        return Math.pow(10, dB / 20);
+    }
+
+    let repeat = 0;
+// Update drawSpectrum in createAnalyzerNode:
     function drawSpectrum() {
         if (!analyserNode) return;
-
         const bufferLength = analyserNode.frequencyBinCount;
         ctx.fillStyle = '#111';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        const minFreq = 20;
-        const maxFreq = sampleRate / 2;
-
         const dataArray = new Uint8Array(bufferLength);
         analyserNode.getByteFrequencyData(dataArray);
+
+        let min = Infinity;
+        let max = -Infinity;
+
         for (let i = 0; i < bufferLength; i++) {
             const freq = i * sampleRate / analyserNode.fftSize;
-            if (freq < minFreq) continue;
-            const x = freqToX(freq, minFreq, maxFreq, canvas.width);
-            const value = dataArray[i];
-            const percent = value / 255;
-            const height = percent * canvas.height;
-            ctx.fillStyle = '#0ff';
-            ctx.fillRect(x, canvas.height - height, 2, height);
-        }
+            if (freq < startFreq || freq > endFreq) continue;
+            const x = freqToX(freq, startFreq, endFreq, canvas.width);
+            // Convert value (0-255) to dB
+            const dbFraction = dataArray[i] / 255
+            const minDb = analyserNode.minDecibels
+            const maxDb = analyserNode.maxDecibels
 
+            const dB = (maxDb - minDb) * dbFraction + minDb
+
+            const minLin = db2dec(minDb);
+            const maxLin = db2dec(maxDb);
+            const lin = db2dec(dB);
+            const linFraction = (lin - minLin) / (maxLin - minLin);
+
+            if(linFraction < min) min = linFraction;
+            if(linFraction > max) max = linFraction;
+
+            let y;
+            if (isLogScaleY) {
+                y = (1-dbFraction) * canvas.height;
+            } else {
+                y = (1-linFraction) * canvas.height;
+            }
+            ctx.fillStyle = '#0ff';
+            ctx.fillRect(x, y, 2, canvas.height - y / 2);
+            console.log(minDb, maxDb);
+        }
+        console.log(`Spectrum min lin ${repeat++}:`, min, 'max lin:', max);
         drawFrequencyLabels();
         if (isPlaying) requestAnimationFrame(drawSpectrum);
     }
 
     drawSpectrum();
+    return analyserNode;
+}
 
-    return analyserNode
+let freqSelectClicks = [];
+let selectedStartFreq = 20;
+let selectedEndFreq = sampleRate / 2;
+
+const createZoomerAnalyzerBetween = (nodeBefore, nodeAfter) => {
+
+    let zoomerAnalyserNode
+    canvasPlot2.addEventListener('click', function (e) {
+        const rect = canvasPlot1.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const minFreq = 20;
+        const maxFreq = sampleRate / 2;
+        // Convert x to frequency (log scale)
+        const freq = Math.pow(10, (x / canvasPlot1.width) * (Math.log10(maxFreq) - Math.log10(minFreq)) + Math.log10(minFreq));
+        freqSelectClicks.push(freq);
+        console.log('Selected frequency:', freq);
+        if (freqSelectClicks.length === 2) {
+            selectedStartFreq = Math.min(freqSelectClicks[0], freqSelectClicks[1]);
+            selectedEndFreq = Math.max(freqSelectClicks[0], freqSelectClicks[1]);
+            freqSelectClicks = [];
+            // Create or update the third analyser node
+            if (zoomerAnalyserNode) {
+                zoomerAnalyserNode.disconnect();
+            }
+            zoomerAnalyserNode = createAnalyzerNode(canvasPlot3, ctxPlot3, selectedStartFreq, selectedEndFreq, 16384);
+            // Connect as needed, e.g.:
+            nodeBefore.connect(zoomerAnalyserNode);
+            zoomerAnalyserNode.connect(nodeAfter)
+        }
+    });
+    return {
+        disconnect: () => {
+            if (zoomerAnalyserNode) {
+                zoomerAnalyserNode.disconnect();
+                zoomerAnalyserNode = undefined
+            }
+        }
+    }
 }
 
 document.getElementById('play').onclick = () => {
@@ -322,6 +389,7 @@ document.getElementById('play').onclick = () => {
     detuneSlider.subscribe(scriptNode)
     pitchSlider.subscribe(scriptNode)
     sawsToggler.subscribe(scriptNode)
+    mixSlider.subscribe(scriptNode)
 
     let hpfNode1 = createFilter('highpass', 1, 10)
     pitchSlider.subscribe(hpfNode1)
@@ -331,6 +399,9 @@ document.getElementById('play').onclick = () => {
     let lpfNode1 = createFilter('lowpass', 4, 20000)
     lpfSlider.subscribe(lpfNode1)
 
+    let preAnalyzerGainNode1 = audioCtx.createGain();
+    analyzerVolumeSlider.subscribe(preAnalyzerGainNode1)
+
     let analyserNode1 = createAnalyzerNode(canvasPlot1, ctxPlot1)
     let gainNode1 = audioCtx.createGain();
 
@@ -338,6 +409,7 @@ document.getElementById('play').onclick = () => {
     detuneSlider.subscribe(oscillatorBankNode)
     pitchSlider.subscribe(oscillatorBankNode)
     sawsToggler.subscribe(oscillatorBankNode)
+    mixSlider.subscribe(oscillatorBankNode)
 
     let hpfNode2 = createFilter('highpass', 1, 10)
     pitchSlider.subscribe(hpfNode2)
@@ -346,6 +418,9 @@ document.getElementById('play').onclick = () => {
 
     let lpfNode2 = createFilter('lowpass', 4, 20000)
     lpfSlider.subscribe(lpfNode2)
+
+    let preAnalyzerGainNode2 = audioCtx.createGain();
+    analyzerVolumeSlider.subscribe(preAnalyzerGainNode2)
 
     let analyserNode2 = createAnalyzerNode(canvasPlot2, ctxPlot2)
     let gainNode2 = audioCtx.createGain();
@@ -359,15 +434,17 @@ document.getElementById('play').onclick = () => {
 
     scriptNode.connect(hpfNode1.node);
     hpfNode1.connect(lpfNode1.node);
-    lpfNode1.connect(analyserNode1)
+    lpfNode1.connect(preAnalyzerGainNode1)
+    preAnalyzerGainNode1.connect(analyserNode1)
     analyserNode1.connect(gainNode1);
     gainNode1.connect(outputGainNode)
 
     oscillatorBankNode.connect(hpfNode2.node);
     hpfNode2.connect(lpfNode2.node);
-    lpfNode2.connect(analyserNode2)
-    analyserNode2.connect(gainNode2);
+    lpfNode2.connect(preAnalyzerGainNode2)
+    preAnalyzerGainNode2.connect(analyserNode2)
     gainNode2.connect(outputGainNode)
+    let analyzerNode3 = createZoomerAnalyzerBetween(analyserNode2, gainNode2)
 
     outputGainNode.connect(audioCtx.destination);
 
@@ -380,19 +457,22 @@ document.getElementById('play').onclick = () => {
         sawsToggler.unsubscribe(scriptNode)
         detuneSlider.unsubscribe(scriptNode)
         pitchSlider.unsubscribe(scriptNode)
+        mixSlider.unsubscribe(scriptNode)
         pitchSlider.unsubscribe(hpfNode1)
         hpfOffsetSlider.unsubscribe(hpfNode1)
         highpassToggle.unsubscribe(hpfNode1)
         lpfSlider.unsubscribe(lpfNode1)
+        analyzerVolumeSlider.unsubscribe(preAnalyzerGainNode1)
 
         sawsToggler.unsubscribe(oscillatorBankNode)
         detuneSlider.unsubscribe(oscillatorBankNode)
         pitchSlider.unsubscribe(oscillatorBankNode)
+        mixSlider.unsubscribe(oscillatorBankNode)
         pitchSlider.unsubscribe(hpfNode2)
         hpfOffsetSlider.unsubscribe(hpfNode2)
         highpassToggle.unsubscribe(hpfNode2)
-
         lpfSlider.unsubscribe(lpfNode2)
+        analyzerVolumeSlider.unsubscribe(preAnalyzerGainNode2)
 
         balanceSlider.unsubscribe(gainNode1)
         balanceSlider.unsubscribe(gainNode2)
@@ -406,6 +486,9 @@ document.getElementById('play').onclick = () => {
 
         lpfNode1.disconnect()
         lpfNode1 = undefined
+
+        preAnalyzerGainNode1.disconnect()
+        preAnalyzerGainNode1 = undefined
 
         analyserNode1.disconnect();
         analyserNode1 = undefined
@@ -422,6 +505,9 @@ document.getElementById('play').onclick = () => {
         lpfNode2.disconnect()
         lpfNode2 = undefined
 
+        preAnalyzerGainNode2.disconnect()
+        preAnalyzerGainNode2 = undefined
+
         analyserNode2.disconnect();
         analyserNode2 = undefined
 
@@ -430,6 +516,9 @@ document.getElementById('play').onclick = () => {
 
         outputGainNode.disconnect();
         outputGainNode = undefined
+
+        analyzerNode3.disconnect();
+        analyzerNode3 = undefined
 
         // TODO: remove onClick-handler.
     };

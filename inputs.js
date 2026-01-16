@@ -28,6 +28,16 @@ const volumeSlider = sliderHandler('volume', (value, subscribers) => {
     console.log(`Setting output volume to ${value}`)
 });
 
+const analyzerVolumeSlider = sliderHandler('analyzerVolume', (value, subscribers) => {
+    subscribers.forEach(node => node.gain.value = value)
+    console.log(`Setting analyzerVolume volume to ${value}`)
+});
+
+const mixSlider = sliderHandler('mix', (value, subscribers) => {
+    subscribers.forEach(node => node.setMix(value))
+    console.log(`Setting mix to ${value}`)
+});
+
 const balanceSlider = sliderHandler('balance', (value, subscribers) => {
     if(subscribers[0]) subscribers[0].gain.value = 1 - value
     if(subscribers[1]) subscribers[1].gain.value = value
@@ -122,4 +132,14 @@ const sawsToggler = createSawsToggler();
 const highpassToggle = toggleHandler('highpassToggle', (on, subscribers) => {
     console.log(`Setting use highpass filter to ${on}`)
     subscribers.forEach(node => node.toggleOn(on))
+});
+
+const linLogXToggle = toggleHandler('linLogX', (on, subscribers) => {
+    console.log(`Setting lin/log x to ${on}`)
+    isLogScaleX = on;
+});
+
+const linLogYToggle = toggleHandler('linLogY', (on, subscribers) => {
+    console.log(`Setting lin/log y to ${on}`)
+    isLogScaleY = on;
 });
