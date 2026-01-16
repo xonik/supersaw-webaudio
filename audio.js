@@ -351,8 +351,12 @@ const createZoomerAnalyzerBetween = (nodeBefore, nodeAfter) => {
         const x = e.clientX - rect.left;
         const minFreq = 20;
         const maxFreq = sampleRate / 2;
-        // Convert x to frequency (log scale)
-        const freq = Math.pow(10, (x / canvasPlot1.width) * (Math.log10(maxFreq) - Math.log10(minFreq)) + Math.log10(minFreq));
+        let freq;
+        if (isLogScaleX) {
+            freq = Math.pow(10, (x / canvasPlot1.width) * (Math.log10(maxFreq) - Math.log10(minFreq)) + Math.log10(minFreq));
+        } else {
+            freq = minFreq + (x / canvasPlot1.width) * (maxFreq - minFreq);
+        }
         freqSelectClicks.push(freq);
         console.log('Selected frequency:', freq);
         if (freqSelectClicks.length === 2) {
@@ -364,7 +368,6 @@ const createZoomerAnalyzerBetween = (nodeBefore, nodeAfter) => {
                 zoomerAnalyserNode.disconnect();
             }
             zoomerAnalyserNode = createAnalyzerNode(canvasPlot3, ctxPlot3, selectedStartFreq, selectedEndFreq, 16384);
-            // Connect as needed, e.g.:
             nodeBefore.connect(zoomerAnalyserNode);
             zoomerAnalyserNode.connect(nodeAfter)
         }
