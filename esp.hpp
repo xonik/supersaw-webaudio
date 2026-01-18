@@ -192,29 +192,72 @@ public:
 		switch (op)
 		{
 			// MAC
-			case 0x00: break;
-			case 0x04: clr = true; break;
-			case 0x08: iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); clr = true; break;
-			case 0x0c: iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); clr = true; break;
-			case 0x10: acc = true; break;
-			case 0x14: acc = true; clr = true; break;
-			case 0x18: acc = true; iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); clr = true; break;
-			case 0x1c: acc = true; iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); clr = true; break;
+      // kNop (0x00)
+      case 0x00: break;
+
+      // kStoreIRAM (0x04)
+      case 0x04: clr = true; break;
+
+      // kStoreIRAM (0x08)
+      case 0x08: iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); clr = true; break;
+
+      // kStoreIRAM (0x0C)
+      case 0x0c: iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); clr = true; break;
+
+      // kStoreIRAM (0x10)
+      case 0x10: acc = true; break;
+
+      // kStoreIRAM (0x14)
+      case 0x14: acc = true; clr = true; break;
+
+      // kStoreIRAM (0x18)
+      case 0x18: acc = true; iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); clr = true; break;
+
+      // kStoreIRAM (0x1C)
+      case 0x1c: acc = true; iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); clr = true; break;
 			
 			// SPECIAL/MUL/GRAM
-			case 0x20:
-				acc = (shiftbits & 2);
-				shift = (shiftbits & 1) ? 6 : 7;
-				mulInputA_24 = shared->gram[mempos];
-				break;
-			case 0x24:
-				acc = (shiftbits & 2);
-				clr = true;
-				shift = (shiftbits & 1) ? 6 : 7;
-				mulInputA_24 = shared->gram[mempos];
-				break;
-			case 0x28: printf("Unexpected Opcode 0x28. This should be unused\n"); break;
-			case 0x2c: printf("Unexpected Opcode 0x2c. This should be unused\n"); break;
+      // kReadGRAM (0x20)
+      case 0x20:
+          acc = (shiftbits & 2);
+          shift = (shiftbits & 1) ? 6 : 7;
+          mulInputA_24 = shared->gram[mempos];
+          break;
+
+      // kReadGRAM (0x24)
+      case 0x24:
+          acc = (shiftbits & 2);
+          clr = true;
+          shift = (shiftbits & 1) ? 6 : 7;
+          mulInputA_24 = shared->gram[mempos];
+          break;
+
+      // Mysterious opcode (0x28)
+      case 0x28: printf("Unexpected Opcode 0x28. This should be unused\n"); break;
+
+      // Mysterious opcode (0x2C)
+      case 0x2c: printf("Unexpected Opcode 0x2c. This should be unused\n"); break;
+
+      // kMulCoef (0x30)
+      // In this case, coef is not just a signed 8-bit integer, but has bitfields controlling
+      // how to get the two multiplication inputs.
+
+      // Coef Bitfield logic:
+      // -- NB: If bits 2,3,4 are 1, it's "weird" mode. Weird.
+      //
+      // Bit 0: clear: !clear, so defaults to clr if 0.
+      // -- !clear adds to existing acc at the end
+      // -- clear resets accumulator to result of this step.
+      // Bit 1: acc:   default acc to use is accA, uses accB if 1
+      // Bit 2: populate iram and mulInputA_24 from acc
+      // Bit 3: mulInputB_24 negate/invert (after load, decided by bits 5-7) (and if not weird)
+      // Bit 4: mulInputB_24 bitwise NOT (after negate, decided by bits 5-7)
+      // -- if multInputB_24 >= 0 and multInputB_24 < 0 are treated differently.
+      // Bit 5-7: select mulInputB_24 source
+      //   110: (eramVarOffset << 11) & 0x7fffff
+      //   111: mulcoeffs[5]
+      //
+
 			case 0x30:
 			{
 				acc = (coef & 2);
@@ -225,39 +268,79 @@ public:
 					if (weird) mulInputA_24 = (mulInputA_24 >= 0) ? 0x7fffff : 0xFF800000;
 					iram[mempos] = mulInputA_24;
 				}
+
+				// Select mulInputB_24 source. First line is default. 3 MSB of coef is used as lookup. The
+				// two special cases are 6 and 7, which means we're left with 0-5 as normal mulcoeffs lookup.
+				// 7 is a bit weird, since it gets the same as 5?
 				mulInputB_24 = shared->mulcoeffs[coef >> 5];
 				if ((coef >> 5) == 6) mulInputB_24 = (shared->eram.eramVarOffset << 11) & 0x7fffff;
 				if ((coef >> 5) == 7) mulInputB_24 = shared->mulcoeffs[5];
+
+				// Invert mulInputB_24
 				if ((coef & 8) && !weird) mulInputB_24 *= -1;
+
+				// Bitwise NOT mulInputB_24. Not sure yet what this does.
 				if ((coef & 16) && mulInputB_24 >= 0 && !weird) mulInputB_24 = (~mulInputB_24 & 0x7fffff);
 				else if ((coef & 16) && mulInputB_24 < 0 && !weird) mulInputB_24 = ~(mulInputB_24 & 0x7fffff);
+
+				// Store current inputB with full precision.
 				last_mulInputB_24 = mulInputB_24;
+
+				// Reduce to 8 bits as multiplication at the end is 24 x 8 bits.
 				mulInputB_24 >>= 16;
 			}
 				break;
+
+      // (complex logic, see below. Unsupported in emulator?) (0x34)
 			case 0x34:
-				if (mem < 0xa0 || (mem & 0xf0) == 0xb0) printf("Unexpected value for mem (%02x) with opcode 0x34\n", mem);
-				if (mem >= 0xa0 && mem < 0xb0) shared->mulcoeffs[(mem >> 1) & 7] = ((mem & 1) ? accB : accA).getPipelineSat24();
-				if (mem >= 0xc0)
-				{
+				if (mem < 0xa0 || (mem & 0xf0) == 0xb0) {
+				  printf("Unexpected value for mem (%02x) with opcode 0x34\n", mem);
+				}
+				if (mem >= 0xa0 && mem < 0xb0) {
+				  // In esp_otp.hpp, this sets opType to kWriteMulCoef
+				  shared->mulcoeffs[(mem >> 1) & 7] = ((mem & 1) ? accB : accA).getPipelineSat24();
+				}
+				if (mem >= 0xc0) {
 					acc = (mem & 0x20);
 					clr = (mem & 0x10);
 					DspAccumulator &ac = (acc) ? accB : accA;
 					switch (mem & 0xf)
 					{
+					  // kNop (conditional jump)
+					  // esp_otp.hpp says "unsupported stuff", but not sure how many of these are unsupported.
+					  // Since the first four (0x0-0x3) are translated to kNop, perhaps it's just those?
 						case 0x0: if (!ac.getPipelineRawFull()) jumpto(coef); break;
+
+						// kNop (conditional jump)
 						case 0x1: if (ac.getPipelineRawFull() < 0) jumpto(coef); break;
+
+						// kNop (conditional jump)
 						case 0x2: if (ac.getPipelineRawFull() > 0) jumpto(coef); break;
+
+						// kNop (jump)
 						case 0x3: jumpto(coef); break;
 						case 0x4: /* set INT pins */ break;
+
+						// kDMAC
 						case 0x6:
 							// double precision
+							// mulInputA_24 comes from previous multiplication
 							mulInputA_24 = last_mulInputA_24 >> 7;
+
+							// lastMul30 means the PREVIOUS op code was 0x30 (kMulCoef)
 							if (lastMul30) mulInputB_24 = (last_mulInputB_24 >> 9) & 0x7f;
 							break;
+
+						// kWriteEramVarOffset
 						case 0x7: shared->eram.eramVarOffset = ac.getPipelineRawFull(); break;
+
+						// kWriteHost - makes it possible to read state back from the ESP
 						case 0xa: *((int32_t*)&shared->readback_regs) = ac.getPipelineSat24(); break;
+
+            // kWriteEramWriteLatch
 						case 0xb: shared->eram.eramWriteLatch = ac.getPipelineSat24(); break;
+
+						// kReadEramReadLatch
 						case 0xc:
 						case 0xd:
 						case 0xe:
@@ -271,51 +354,83 @@ public:
 					}
 				}
 				break;
-			case 0x38: shared->gram[mempos] = mulInputA_24 = accA.getPipelineSat24(); break;
-			case 0x3c: shared->gram[mempos] = mulInputA_24 = accB.getPipelineSat24(); break;
+
+      // kStoreGRAM (0x38)
+      case 0x38: shared->gram[mempos] = mulInputA_24 = accA.getPipelineSat24(); break;
+
+      // kStoreGRAM (0x3C)
+      case 0x3c: shared->gram[mempos] = mulInputA_24 = accB.getPipelineSat24(); break;
 			
 			// UNSAT/CLAMP
-			case 0x40: iram[mempos] = mulInputA_24 = accA.getPipelineRaw24(); break;
-			case 0x44: iram[mempos] = mulInputA_24 = accA.getPipelineRaw24(); clr = true; break;
-			case 0x48: iram[mempos] = mulInputA_24 = std::max(0, accA.getPipelineSat24()); break;
-			case 0x4c: iram[mempos] = mulInputA_24 = std::max(0, accA.getPipelineSat24()); clr = true; break;
-			
-			case 0x50:
-				// Super unsure here! The hardware seems to be clearing the acc, but it works better without
-				clr = true;
-				setcondition = true;
-				break;
-			case 0x54: printf("Mysterious opcode 54 at pc = %04x\n", pc - 1); break; // TODO: what is this?
-			case 0x58: iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); break;
-			case 0x5c: acc = true; iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); break;
+      // kStoreIRAMUnsat (0x40)
+      case 0x40: iram[mempos] = mulInputA_24 = accA.getPipelineRaw24(); break;
+
+      // kStoreIRAMUnsat (0x44)
+      case 0x44: iram[mempos] = mulInputA_24 = accA.getPipelineRaw24(); clr = true; break;
+
+      // kStoreIRAMRect (0x48)
+      case 0x48: iram[mempos] = mulInputA_24 = std::max(0, accA.getPipelineSat24()); break;
+
+      // kStoreIRAMRect (0x4C)
+      case 0x4c: iram[mempos] = mulInputA_24 = std::max(0, accA.getPipelineSat24()); clr = true; break;
+
+      // kSetCondition (0x50)
+      case 0x50:
+          clr = true;
+          setcondition = true;
+          break;
+
+      // Mysterious opcode (0x54)
+      case 0x54: printf("Mysterious opcode 54 at pc = %04x\n", pc - 1); break;
+
+      // kStoreIRAM (0x58)
+      case 0x58: iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); break;
+
+      // kStoreIRAM (0x5C)
+      case 0x5c: acc = true; iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); break;
 			
 			// TODO: mask 0x7fffff might be different, but the important thing is to remove the sign
-			case 0x60: mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
-			case 0x64: clr = true; mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
-			case 0x68:
-				iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
-				if (mulInputA_24 >= 0) mulInputA_24 = ~mulInputA_24;
-				mulInputA_24 &= 0x7fffff;
-				break;
-			case 0x6c:
-				iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
-				if (mulInputA_24 >= 0) mulInputA_24 = ~mulInputA_24;
-				mulInputA_24 &= 0x7fffff;
-				clr = true;
-				break;
-			case 0x70: mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
-			case 0x74: clr = true; mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
-			case 0x78:
-				iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
-				if (mulInputA_24 < 0) mulInputA_24 = ~mulInputA_24;
-				mulInputA_24 &= 0x7fffff;
-				break;
-			case 0x7c:
-				iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
-				if (mulInputA_24 < 0) mulInputA_24 = ~mulInputA_24;
-				mulInputA_24 &= 0x7fffff;
-				clr = true;
-				break;
+      // kInterp (0x60)
+      case 0x60: mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
+
+      // kInterp (0x64)
+      case 0x64: clr = true; mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
+
+      // kInterpStorePos (0x68)
+      case 0x68:
+          iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
+          if (mulInputA_24 >= 0) mulInputA_24 = ~mulInputA_24;
+          mulInputA_24 &= 0x7fffff;
+          break;
+
+      // kInterpStorePos (0x6C)
+      case 0x6c:
+          iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
+          if (mulInputA_24 >= 0) mulInputA_24 = ~mulInputA_24;
+          mulInputA_24 &= 0x7fffff;
+          clr = true;
+          break;
+
+      // kInterp (0x70)
+      case 0x70: mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
+
+      // kInterp (0x74)
+      case 0x74: clr = true; mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
+
+      // kInterpStoreNeg (0x78)
+      case 0x78:
+          iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
+          if (mulInputA_24 < 0) mulInputA_24 = ~mulInputA_24;
+          mulInputA_24 &= 0x7fffff;
+          break;
+
+      // kInterpStoreNeg (0x7C)
+      case 0x7c:
+          iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
+          if (mulInputA_24 < 0) mulInputA_24 = ~mulInputA_24;
+          mulInputA_24 &= 0x7fffff;
+          clr = true;
+          break;
 			
 			default: printf("mysterious\n"); break; // TODO: few more opcodes here
 		}
@@ -323,8 +438,13 @@ public:
 		if (skipfield & 1) mulInputA_24 = 0;
 
 		// Multiplier
+		// The storeAcc is the same as the source acc for the mulInputA_24 when op is kMulCoef.
 		DspAccumulator &storeAcc = (acc) ? accB : accA;
+
+		// Resets accumulator, this is the default behaviour.
 		if (clr) storeAcc = 0;
+
+		// Does a 24x8 bit signed multiply, shifts the result right by 'shift' and adds to accumulator.
 		int64_t mulResult = (int64_t)se<24>(mulInputA_24) * (int64_t) se<8>(mulInputB_24);
 		mulResult >>= shift;
 		storeAcc += (int32_t)mulResult;
@@ -332,8 +452,11 @@ public:
 		skipfield >>= 1;
 		if (setcondition) skipfield |= (storeAcc.rawFull() < 0) ? 0x3c0 : 0x30;
 
+    // Store last input and tell the next step if we just did a kMulCoef. Used in the
+    // special case and annotated as double precision multiplication.
 		last_mulInputA_24 = mulInputA_24;
 		lastMul30 = (op == 0x30);
+
 		accA.storePipeline();
 		accB.storePipeline();
 	}

@@ -1,14 +1,20 @@
+Capabilities:
+6 accumulators
+
+
 7c = 01111100
 ff = 11111111
 0xf = 00001111
 
+Instruction format
+------------------
 P = op
 M = mem
 S = shiftbits
-C = coefficient
+C = coefficient, a signed 8-bit integer
 x = unused?
 
-Instruction format
+Bit format:
 xPPPPPMM MMMMMMSS CCCCCCCC
 
 Shiftbits
@@ -28,6 +34,9 @@ Så shiftbits->shift:
 2 -> 5
 3 -> 3
 
+for op 32 og 36 (kReadGRAM) er shiftAmount 6 hvis shift LSB er 1, ellers er den 7,
+overstyrer altså evt MSB av shift.
+
 mem slår opp i iramPos og gir mempos
 
 mem 1,2,3,4 er special cases som gir
@@ -40,7 +49,176 @@ multInputB_24 = coefficient
 
 Default acc og clr er false
 
-Opcodes
+Default values:
+useImm = false
+imm = 0
+opType = kMAC - for alle ting som ikke er en del av switch statement
 
-0: NOP
-4: LOAD
+
+Opcodes:
+-------------------------
+000000  0   (0x00)  // kNop
+
+000010  2   (0x08)  // kStoreIRAM
+000011  3   (0x0C)  // kStoreIRAM
+000110  6   (0x18)  // kStoreIRAM
+000111  7   (0x1C)  // kStoreIRAM
+010110  22  (0x58)  // kStoreIRAM
+010111  23  (0x5C)  // kStoreIRAM
+mask: xxxx1x
+
+001000  8   (0x20)  // kReadGRAM
+001001  9   (0x24)  // kReadGRAM
+mask: xx1xxx
+
+001100  12  (0x30)  // kMulCoef
+
+001101  13  (0x34)  // (complex logic, see below. Unsupported in emulator?)
+mask: xx11xx
+
+001110  14  (0x38)  // kStoreGRAM
+001111  15  (0x3C)  // kStoreGRAM
+mask: xx111x
+
+010000  16  (0x40)  // kStoreIRAMUnsat
+010001  17  (0x44)  // kStoreIRAMUnsat
+mask: x1xxxx
+// iram[mempos] = mulInputA_24 = readAcc; --> unsaturated store
+
+010010  18  (0x48)  // kStoreIRAMRect
+010011  19  (0x4C)  // kStoreIRAMRect
+mask: x1xx1x
+// iram[mempos] = mulInputA_24 = std::max(0, sat(readAcc)); --> saturated store
+
+010100  20  (0x50)  // kSetCondition
+
+011000  24  (0x60)  // kInterp
+011001  25  (0x64)  // kInterp
+011100  28  (0x70)  // kInterp
+011101  29  (0x74)  // kInterp
+mask: x11xxx
+
+Interpolate store positive and negative - prepare interpolation coefficients, with almost an abs(x) value
+011010  26  (0x68)  // kInterpStorePos
+011011  27  (0x6C)  // kInterpStorePos
+mask: x11x1x
+
+011110  30  (0x78)  // kInterpStoreNeg
+011111  31  (0x7C)  // kInterpStoreNeg
+mask: x1111x
+
+010101  21  (0x54)  // Mysterious opcode
+001010  10  (0x28)  // Mysterious opcode
+001011  11  (0x2C)  // Mysterious opcode
+
+Missing: 1, 4, 5
+
+SPECIAL CASE:
+-------------
+001101  13  (0x34) - complex logic, unsupported in emulator?:
+
+if(mem < 160 || (mem & 0xf0) == 176)) { // upper half of byte is 1011
+  printf("Unexpected value for mem (%02x) with opcode 0x34\n", mem);
+} else if (mem >= 160 && mem < 176) {
+  opType = kWriteMulCoef;
+  // mulcoeffs[(instr.mem >> 1) & 7] = sat(readAcc); -- forbereder mulcoeffs med saturated readAcc
+
+} else if (mem >= 192) {
+  mem & 0xf:
+  0000  0   // jump! (kNop)
+  0001  1   // jump! (kNop)
+  0010  2   // jump! (kNop)
+  0011  3   // jump! (kNop)
+  0100  4   // int pins!
+  0110  6   // kDMAC
+  0111  7   // kWriteEramVarOffset
+  1010  10  // kWriteHost
+  // *((int32_t*)&readback_regs) = sat(readAcc); --> write to host, saturated
+
+  1011  11  // kWriteEramWriteLatch
+  // eram.eramWriteLatch = sat(readAcc);
+
+  1100  12  // kReadEramReadLatch
+  1101  13  // kReadEramReadLatch
+  1110  14  // kReadEramReadLatch
+  1111  15  // kReadEramReadLatch
+}
+
+
+Figure out:
+what is lastMul30 (høres ut som 23 + 7 bit multiplication, altså en signed 24bit og en signed 7 bit?)
+
+
+kMulCoef - antakelig *= ?
+// In this case, coef is not just a signed 8-bit integer, but has bitfields controlling
+// how to get the two multiplication inputs.
+case kMulCoef:
+			{
+				bool weird = (instr.coef & 0x1c) == 0x1c; // 0b00011100
+
+				// reads and modifies mulInputA_24
+				if (instr.coef & 4) { // & 0b00000100
+					mulInputA_24 = sat(readAcc); // antakelig den løpende akkumulatoren, saturated.
+					if (weird) {
+						mulInputA_24 = (mulInputA_24 >= 0) ? 0x7fffff : 0xFF800000;
+					}
+					iram[mempos] = mulInputA_24;
+				}
+
+        // controls where to get mulInputB_24 from
+				if ((instr.coef >> 5) == 6) { // koeff >= 11000000 & < 11100000
+					mulInputB_24 = (shared.eram.eramVarOffset << 11) & 0x7fffff;
+				} else if ((instr.coef >> 5) == 7) { // koeff >= 11100000
+					mulInputB_24 = shared.mulcoeffs[5];
+				} else {
+					mulInputB_24 = shared.mulcoeffs[coef >> 5];
+				}
+
+        // inverters mulInputB?
+				if ((instr.coef & 8) && !weird) { // coef & 0b00001000
+					mulInputB_24 *= -1;
+				}
+
+        // Noooot sure what this does to mulInputB but it differentiates
+        // between pos and neg values.
+				if ((instr.coef & 16) && !weird) { // coef & 0b00010000
+					if (mulInputB_24 >= 0) {
+					  mulInputB_24 = (~mulInputB_24 & 0x7fffff);
+					} else {
+					  mulInputB_24 = ~(mulInputB_24 & 0x7fffff);
+					}
+				}
+
+        // store last value before mutating
+				last_mulInputB_24 = mulInputB_24;
+
+        // divide down to 8 bit int. Makes sense as multiplication is 24x8 bit
+				mulInputB_24 >>= 16;
+			}
+			break;
+
+
+Code for every op:
+		const bool clr = instr.m_access.clr;
+		if (!instr.m_access.nomac && instr.m_access.srcReg != -1 && instr.m_access.destReg != -1) {
+		  // store last mul inputs and do multiplication
+			last_mulInputA_24 = mulInputA_24;
+
+			// At this point, mulInputB_24 is an 8-bit signed integer if using kMulCoef or kDMAC,
+			// hvis ikke er den inst.coeff
+			result = (int64_t)se<24>(mulInputA_24) * (int64_t) mulInputB_24;
+
+			// shift result according to selected shift amount (3,5,6,7). It seems shift can NEVER
+			// be 0, so ALL multiplications or summations are shifted down at least 3 bits.
+			result >>= instr.shiftAmount;
+
+      // hvis ikke clear så legg til verdi fra srcAcc. MAO, clear avbryter automatisk akkumulering.
+			if (!clr) {
+				result += *srcAcc;
+			}
+
+      // ta vare på result
+			*destAcc = result;
+		} else {
+			last_mulInputA_24 = 0;
+		}
