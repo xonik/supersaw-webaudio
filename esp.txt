@@ -1,4 +1,64 @@
-Capabilities:
+From presentation:
+Two program memory areas, 768 words each
+PR0: 24 bit
+PR1: 28 bit
+
+IRAM - Internal Ram
+GRAM - G-ram, not sure what it means, probably GLOBAL
+  Ram as it is shared between cores
+
+ERAM - External Ram (DRAM)
+Bytecode format: last 8 bits are signed coefficient (see below)
+External RAM control: First bits control the external RAM access
+(bits 27 to 23)
+
+37 28 00 -> sends result to CP
+
+ESP chip: Specs:
+Two cores, each with:
+- 24 x 8bit multiplier
+- Two accumulators (A and B)
+- Programs of 768 instructions
+- 256 words of 24 bit internal RAM, addressed as delay line
+- 3 pipeline slots for IRAM write
+
+Only one core can access external RAM
+- 256 words of shared internal RAM (GRAM), used also for audio I/O
+
+ESP chip: instructions
+- Each instruction performs a MAC
+  - acc += iram[i] * constant
+- store accA or accB to IRAM
+- Store unsaturated (unsigned) [comment: probably selectable on/off]
+- Read/write GRAM
+- Multiplication per variable
+- Rectify clamp, interpolate helpers
+
+- Control Flow
+  - Jump always/zero/pos/neg
+  - Skip based on condition
+    - Skips the following instructions
+
+Extremely similar to LSP (See: Sound Chip, whisper me your secrets)
+(gulaschprogrammiernacht 23)
+- same instruction format
+- same memory addressing
+- same external memory control
+- same coefficient size
+
+
+Large unit test suite (where is it?)
+
+First DSP only: free running SuperSaw:
+Diagram shows a super saw, the ampltude on the positive side is never > 0.3 and
+on the negative never < -0.5, which can be interesting in regards to the summing/
+normalization part.
+
+Screenshot of supersaw notes (?) shows a lot of DMAC and MAC!
+
+Communicates between DSPs via GRAM
+
+Capabilities
 6 accumulators
 
 

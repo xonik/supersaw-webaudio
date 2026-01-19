@@ -238,7 +238,7 @@ public:
       // Mysterious opcode (0x2C)
       case 0x2c: printf("Unexpected Opcode 0x2c. This should be unused\n"); break;
 
-      // kMulCoef (0x30)
+
       // In this case, coef is not just a signed 8-bit integer, but has bitfields controlling
       // how to get the two multiplication inputs.
 
@@ -257,7 +257,7 @@ public:
       //   110: (eramVarOffset << 11) & 0x7fffff
       //   111: mulcoeffs[5]
       //
-
+      // kMulCoef (0x30)
 			case 0x30:
 			{
 				acc = (coef & 2);
@@ -297,12 +297,14 @@ public:
 				  printf("Unexpected value for mem (%02x) with opcode 0x34\n", mem);
 				}
 				if (mem >= 0xa0 && mem < 0xb0) {
-				  // In esp_otp.hpp, this sets opType to kWriteMulCoef
+				  // In esp_otp.hpp, this sets opType to kWriteMulCoef, here it writes directly to mulcoeffs.
 				  shared->mulcoeffs[(mem >> 1) & 7] = ((mem & 1) ? accB : accA).getPipelineSat24();
 				}
-				if (mem >= 0xc0) {
+				if (mem >= 0xc0) { // Perhaps this means
 					acc = (mem & 0x20);
 					clr = (mem & 0x10);
+
+					// kDMAC doesn't care about ac
 					DspAccumulator &ac = (acc) ? accB : accA;
 					switch (mem & 0xf)
 					{
@@ -321,13 +323,34 @@ public:
 						case 0x3: jumpto(coef); break;
 						case 0x4: /* set INT pins */ break;
 
-						// kDMAC
+						// kDMAC - Double precision MAC
 						case 0x6:
 							// double precision
-							// mulInputA_24 comes from previous multiplication
+							// As long as not "weird", mulInputA_24 is the raw, unchanged value used in the previous
+							// multiplication. This time the 7 LSB are removed.
 							mulInputA_24 = last_mulInputA_24 >> 7;
 
 							// lastMul30 means the PREVIOUS op code was 0x30 (kMulCoef)
+							// last_mulInputB_24 was stored with its full precision then, but only the 8 MSB were used (we shifted
+							// down by 16 bits beforefor the multiplication). This time we only shift down by 9 bits, which when
+							// or'ing with 0x7f gives the next 7 bits of the original value:
+							// original: saaaaaaabbbbbbbbcccccccc
+							// first time: saaaaaaa (after >>16)
+							// second time: saaaaaaabbbbbbb (after >>9), 0bbbbbbb (after & 0x7f)
+							// Only the 7 LSB are kept, so sign bit is removed, isnt't it?
+							// Presumably, clr is false this time, to add the result to the existing accumulator value?
+
+							// Assuming the same shift is used every time
+							/*
+							first time: acc += ((mulInputA_24 * (mulInputB_24 >> 16)) >> shift)
+							second time: acc += (((mulInputA_24 >> 7) * ((mulInputB_24 >> 9) & 0x7f)) >> shift)
+
+							total: acc = ((mulInputA_24 * (last_mulInputB_24 >> 16)) >> shift) + ((mulInputA_24 * ((last_mulInputB_24 >> 9) & 0x7f)) >> shift)
+
+							This is almost like the bytewise multiplication i've seen earlier, but it is missing the left shift.
+							This is also probably an approximation of an actual 24x16 multiplication, done in two steps to
+							save hardware. But it means that the ESP is capable of doing 24 x 16 multiplication after all.
+							*/
 							if (lastMul30) mulInputB_24 = (last_mulInputB_24 >> 9) & 0x7f;
 							break;
 

@@ -1,5 +1,7 @@
-const sampleRate = 48000; // does not work for 88200, or rather, different pitches from 44100
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate});
+const useAudioInputAsSourceForAnalyzer2and3 = false
+
+const sampleRate = 44100; // does not work for 88200, or rather, different pitches from 44100
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)(useAudioInputAsSourceForAnalyzer2and3 ? undefined : {sampleRate});
 let isPlaying = false;
 let isLogScaleX = true;
 let isLogScaleY = false;
@@ -324,13 +326,17 @@ function createAnalyzerNode(canvas, ctx, startFreq = 20, endFreq = sampleRate / 
             if (isLogScaleY) {
                 y = (1-dbFraction) * canvas.height;
             } else {
-                y = (1-linFraction) * canvas.height;
+                // To analyze the output from JE-8086 using VB-cable,
+                // use the following conversion:
+                if(useAudioInputAsSourceForAnalyzer2and3){
+                    y = (1-linFraction / 0.04) * canvas.height;
+                } else {
+                    y = (1-linFraction ) * canvas.height;
+                }
             }
             ctx.fillStyle = '#0ff';
             ctx.fillRect(x, y, 2, canvas.height - y / 2);
-            console.log(minDb, maxDb);
         }
-        console.log(`Spectrum min lin ${repeat++}:`, min, 'max lin:', max);
         drawFrequencyLabels();
         if (isPlaying) requestAnimationFrame(drawSpectrum);
     }
@@ -367,9 +373,9 @@ const createZoomerAnalyzerBetween = (nodeBefore, nodeAfter) => {
             if (zoomerAnalyserNode) {
                 zoomerAnalyserNode.disconnect();
             }
-            zoomerAnalyserNode = createAnalyzerNode(canvasPlot3, ctxPlot3, selectedStartFreq, selectedEndFreq, 16384);
+            zoomerAnalyserNode = createAnalyzerNode(canvasPlot3, ctxPlot3, selectedStartFreq, selectedEndFreq, 32768);
             nodeBefore.connect(zoomerAnalyserNode);
-            zoomerAnalyserNode.connect(nodeAfter)
+            if(zoomerAnalyserNode) zoomerAnalyserNode.connect(nodeAfter)
         }
     });
     return {
@@ -382,7 +388,22 @@ const createZoomerAnalyzerBetween = (nodeBefore, nodeAfter) => {
     }
 }
 
-document.getElementById('play').onclick = () => {
+// Node for getting input from microphone
+async function createInputNode(){
+    // 1. Ask for microphone (VB-Cable output)
+    const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+        }
+    });
+
+    // 3. Source from VB-Cable
+    return audioCtx.createMediaStreamSource(stream);
+}
+
+document.getElementById('play').onclick = async () => {
     console.log(`Play clicked (isPlaying is ${isPlaying}`)
     if (isPlaying) return;
     isPlaying = true;
@@ -447,6 +468,13 @@ document.getElementById('play').onclick = () => {
     lpfNode2.connect(preAnalyzerGainNode2)
     preAnalyzerGainNode2.connect(analyserNode2)
     gainNode2.connect(outputGainNode)
+
+    let audioInputNode
+    if(useAudioInputAsSourceForAnalyzer2and3) {
+        audioInputNode = await createInputNode()
+        audioInputNode.connect(analyserNode2)
+    }
+
     let analyzerNode3 = createZoomerAnalyzerBetween(analyserNode2, gainNode2)
 
     outputGainNode.connect(audioCtx.destination);
@@ -480,6 +508,11 @@ document.getElementById('play').onclick = () => {
         balanceSlider.unsubscribe(gainNode1)
         balanceSlider.unsubscribe(gainNode2)
         volumeSlider.unsubscribe(outputGainNode)
+
+        if(audioInputNode){
+            audioInputNode.disconnect()
+            audioInputNode = undefined
+        }
 
         scriptNode.disconnect();
         scriptNode = undefined
