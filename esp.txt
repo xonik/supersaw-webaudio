@@ -16,7 +16,7 @@ External RAM control: First bits control the external RAM access
 
 ESP chip: Specs:
 Two cores, each with:
-- 24 x 8bit multiplier
+- 24 x 8bit multiplier - but it multiplies two 24bit numbers, only the second is limited to the 8MSBs giving less precision in the answer.
 - Two accumulators (A and B)
 - Programs of 768 instructions
 - 256 words of 24 bit internal RAM, addressed as delay line

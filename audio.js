@@ -1,3 +1,5 @@
+import { CanvasHelper } from './canvasHelper.js';
+
 const useAudioInputAsSourceForAnalyzer2and3 = false
 
 const sampleRate = 44100; // does not work for 88200, or rather, different pitches from 44100
@@ -6,19 +8,17 @@ let isPlaying = false;
 let isLogScaleX = true;
 let isLogScaleY = false;
 
-const createPlotCanvas = (id) => {
-    const canvas = document.getElementById(id);
-    canvas.width = window.innerWidth;
-    canvas.height = 150;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    return {canvas, ctx};
-}
+const canvasPlot1Helper = new CanvasHelper('plot1');
+const canvasPlot2Helper = new CanvasHelper('plot2');
+const canvasPlot3Helper = new CanvasHelper('plot3');
 
-const {canvas: canvasPlot1, ctx: ctxPlot1} = createPlotCanvas('plot1');
-const {canvas: canvasPlot2, ctx: ctxPlot2} = createPlotCanvas('plot2');
-const {canvas: canvasPlot3, ctx: ctxPlot3} = createPlotCanvas('plot3');
+// Use helper for all references
+const canvasPlot1 = canvasPlot1Helper.canvas;
+const ctxPlot1 = canvasPlot1Helper.context;
+const canvasPlot2 = canvasPlot2Helper.canvas;
+const ctxPlot2 = canvasPlot2Helper.context;
+const canvasPlot3 = canvasPlot3Helper.canvas;
+const ctxPlot3 = canvasPlot3Helper.context;
 
 const saw = [0, Math.random(), Math.random(), Math.random(), Math.random(), Math.random(), Math.random()];
 const detune_table = [0, 318, -318, 1020, -1029, 1760, -1800].map(v => v / 16384); // divide by 16384 to get approx the same as above
@@ -268,20 +268,11 @@ function createAnalyzerNode(canvas, ctx, startFreq = 20, endFreq = sampleRate / 
 
     function drawFrequencyLabels() {
         const numTicks = 10;
-        ctx.font = '12px sans-serif';
-        ctx.fillStyle = '#fff';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-
         for (let i = 0; i <= numTicks; i++) {
             const freq = startFreq * Math.pow(endFreq / startFreq, i / numTicks);
             const x = freqToX(freq, startFreq, endFreq, canvas.width);
-            ctx.strokeStyle = '#888';
-            ctx.beginPath();
-            ctx.moveTo(x, canvas.height - 15);
-            ctx.lineTo(x, canvas.height);
-            ctx.stroke();
-            ctx.fillText(Math.round(freq) + ' Hz', x, canvas.height - 13);
+            canvasHelper.drawVerticalLines(numTicks, '#888'); // Draw grid lines
+            canvasHelper.drawText(Math.round(freq) + ' Hz', x, canvas.height - 13);
         }
     }
 
@@ -289,14 +280,10 @@ function createAnalyzerNode(canvas, ctx, startFreq = 20, endFreq = sampleRate / 
         return Math.pow(10, dB / 20);
     }
 
-    let repeat = 0;
-// Update drawSpectrum in createAnalyzerNode:
     function drawSpectrum() {
         if (!analyserNode) return;
+        canvasHelper.clear();
         const bufferLength = analyserNode.frequencyBinCount;
-        ctx.fillStyle = '#111';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
         const dataArray = new Uint8Array(bufferLength);
         analyserNode.getByteFrequencyData(dataArray);
 
@@ -307,7 +294,6 @@ function createAnalyzerNode(canvas, ctx, startFreq = 20, endFreq = sampleRate / 
             const freq = i * sampleRate / analyserNode.fftSize;
             if (freq < startFreq || freq > endFreq) continue;
             const x = freqToX(freq, startFreq, endFreq, canvas.width);
-            // Convert value (0-255) to dB
             const dbFraction = dataArray[i] / 255
             const minDb = analyserNode.minDecibels
             const maxDb = analyserNode.maxDecibels
@@ -334,8 +320,8 @@ function createAnalyzerNode(canvas, ctx, startFreq = 20, endFreq = sampleRate / 
                     y = (1-linFraction ) * canvas.height;
                 }
             }
-            ctx.fillStyle = '#0ff';
-            ctx.fillRect(x, y, 2, canvas.height - y / 2);
+            // Use helper for spectrum bars
+            canvasHelper.drawSpectrumBar(x, y, 2, canvas.height - y / 2);
         }
         drawFrequencyLabels();
         if (isPlaying) requestAnimationFrame(drawSpectrum);
