@@ -1,5 +1,3 @@
-import { CanvasHelper } from './canvasHelper.js';
-
 const useAudioInputAsSourceForAnalyzer2and3 = false
 
 const sampleRate = 44100; // does not work for 88200, or rather, different pitches from 44100
@@ -14,11 +12,7 @@ const canvasPlot3Helper = new CanvasHelper('plot3');
 
 // Use helper for all references
 const canvasPlot1 = canvasPlot1Helper.canvas;
-const ctxPlot1 = canvasPlot1Helper.context;
 const canvasPlot2 = canvasPlot2Helper.canvas;
-const ctxPlot2 = canvasPlot2Helper.context;
-const canvasPlot3 = canvasPlot3Helper.canvas;
-const ctxPlot3 = canvasPlot3Helper.context;
 
 const saw = [0, Math.random(), Math.random(), Math.random(), Math.random(), Math.random(), Math.random()];
 const detune_table = [0, 318, -318, 1020, -1029, 1760, -1800].map(v => v / 16384); // divide by 16384 to get approx the same as above
@@ -35,6 +29,54 @@ function createOscillator(frequency, gain) {
     oscillatorNode.start();
 
     return {oscillatorNode, gainNode};
+}
+
+async function createWavPlayerNode(filename) {
+    // Fetch and decode the WAV file from the same directory as audio.js
+    const response = await fetch(filename);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+    let bufferSource = null;
+
+    function start() {
+        if (bufferSource) {
+            bufferSource.stop();
+        }
+        bufferSource = audioCtx.createBufferSource();
+        bufferSource.buffer = audioBuffer;
+        bufferSource.loop = true;
+        bufferSource.connect(outputNode);
+        bufferSource.start();
+    }
+
+    function stop() {
+        if (bufferSource) {
+            bufferSource.stop();
+            bufferSource.disconnect();
+            bufferSource = null;
+        }
+    }
+
+    const outputNode = audioCtx.createGain();
+    outputNode.gain.value = 1;
+
+    function connect(node) {
+        outputNode.connect(node);
+    }
+
+    function disconnect() {
+        stop();
+        outputNode.disconnect();
+    }
+
+    return {
+        start,
+        stop,
+        connect,
+        disconnect,
+        node: outputNode
+    };
 }
 
 function createOscillatorBank(initialFrequency, initialDetuneAmount, initialMix) {
@@ -261,7 +303,8 @@ function freqToX(freq, minFreq, maxFreq, width) {
     }
 }
 
-function createAnalyzerNode(canvas, ctx, startFreq = 20, endFreq = sampleRate / 2, fftSize = 2048) {
+function createAnalyzerNode(canvasHelper, startFreq = 20, endFreq = sampleRate / 2, fftSize = 2048) {
+    const canvas = canvasHelper.canvas;
     const analyserNode = audioCtx.createAnalyser();
     analyserNode.fftSize = fftSize;
     analyserNode.maxDecibels = -30;
@@ -359,7 +402,7 @@ const createZoomerAnalyzerBetween = (nodeBefore, nodeAfter) => {
             if (zoomerAnalyserNode) {
                 zoomerAnalyserNode.disconnect();
             }
-            zoomerAnalyserNode = createAnalyzerNode(canvasPlot3, ctxPlot3, selectedStartFreq, selectedEndFreq, 32768);
+            zoomerAnalyserNode = createAnalyzerNode(canvasPlot3Helper, selectedStartFreq, selectedEndFreq, 32768);
             nodeBefore.connect(zoomerAnalyserNode);
             if(zoomerAnalyserNode) zoomerAnalyserNode.connect(nodeAfter)
         }
@@ -412,7 +455,7 @@ document.getElementById('play').onclick = async () => {
     let preAnalyzerGainNode1 = audioCtx.createGain();
     analyzerVolumeSlider.subscribe(preAnalyzerGainNode1)
 
-    let analyserNode1 = createAnalyzerNode(canvasPlot1, ctxPlot1)
+    let analyserNode1 = createAnalyzerNode(canvasPlot1Helper)
     let gainNode1 = audioCtx.createGain();
 
     let oscillatorBankNode = createOscillatorBank(0, 1, 1)
@@ -432,7 +475,7 @@ document.getElementById('play').onclick = async () => {
     let preAnalyzerGainNode2 = audioCtx.createGain();
     analyzerVolumeSlider.subscribe(preAnalyzerGainNode2)
 
-    let analyserNode2 = createAnalyzerNode(canvasPlot2, ctxPlot2)
+    let analyserNode2 = createAnalyzerNode(canvasPlot2Helper)
     let gainNode2 = audioCtx.createGain();
 
     let outputGainNode = audioCtx.createGain();
@@ -461,15 +504,21 @@ document.getElementById('play').onclick = async () => {
         audioInputNode.connect(analyserNode2)
     }
 
+    let wavInputNode = await createWavPlayerNode('je8086_out.wav')
+    wavInputNode.connect(analyserNode2)
+
     let analyzerNode3 = createZoomerAnalyzerBetween(analyserNode2, gainNode2)
 
     outputGainNode.connect(audioCtx.destination);
+    if(wavInputNode) wavInputNode.start()
 
     document.getElementById('stop').onclick = () => {
         console.log(`Stop pressed, isPlaying is ${isPlaying}`)
         if (!isPlaying) return
         isPlaying = false
         console.log('Stop, look and listen')
+
+        if(wavInputNode) wavInputNode.stop()
 
         sawsToggler.unsubscribe(scriptNode)
         detuneSlider.unsubscribe(scriptNode)

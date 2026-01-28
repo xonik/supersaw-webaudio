@@ -193,31 +193,45 @@ public:
 		{
 			// MAC
       // kNop (0x00)
+      // No operation. Does nothing and continues to the next instruction.
       case 0x00: break;
 
       // kStoreIRAM (0x04)
+      // Clears the selected accumulator (accA or accB) before the multiply-accumulate step.
       case 0x04: clr = true; break;
 
       // kStoreIRAM (0x08)
+      // TODO multInputA_24
+      // Stores the saturated value of accA to IRAM at mempos, then clears accA.
       case 0x08: iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); clr = true; break;
 
       // kStoreIRAM (0x0C)
+      // TODO multInputA_24
+      // Stores the saturated value of accB to IRAM at mempos, then clears accB.
       case 0x0c: iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); clr = true; break;
 
       // kStoreIRAM (0x10)
+      // Sets the acc flag to use accB for the multiply-accumulate step, but does not clear.
       case 0x10: acc = true; break;
 
       // kStoreIRAM (0x14)
+      // Sets the acc flag to use accB and clears the accumulator before the multiply-accumulate step.
       case 0x14: acc = true; clr = true; break;
 
       // kStoreIRAM (0x18)
+      // TODO: What about acc true here? And multInputA_24
+      // Stores the saturated value of accA to IRAM at mempos, sets acc flag, and clears accA.
       case 0x18: acc = true; iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); clr = true; break;
 
       // kStoreIRAM (0x1C)
+      // TODO: What about acc true here? And multInputA_24
+      // Stores the saturated value of accB to IRAM at mempos, sets acc flag, and clears accB.
       case 0x1c: acc = true; iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); clr = true; break;
 			
 			// SPECIAL/MUL/GRAM
       // kReadGRAM (0x20)
+      // TODO Exmplain acc and shift
+      // Reads a value from GRAM at mempos into mulInputA_24, sets acc flag and shift amount based on shiftbits.
       case 0x20:
           acc = (shiftbits & 2);
           shift = (shiftbits & 1) ? 6 : 7;
@@ -225,6 +239,8 @@ public:
           break;
 
       // kReadGRAM (0x24)
+      // TODO Exmplain acc and shift
+      // Reads a value from GRAM at mempos into mulInputA_24, sets acc flag, shift amount, and clears accumulator.
       case 0x24:
           acc = (shiftbits & 2);
           clr = true;
@@ -233,9 +249,11 @@ public:
           break;
 
       // Mysterious opcode (0x28)
+      // Unused/unknown opcode. Prints a warning if executed.
       case 0x28: printf("Unexpected Opcode 0x28. This should be unused\n"); break;
 
       // Mysterious opcode (0x2C)
+      // Unused/unknown opcode. Prints a warning if executed.
       case 0x2c: printf("Unexpected Opcode 0x2c. This should be unused\n"); break;
 
 
@@ -258,6 +276,9 @@ public:
       //   111: mulcoeffs[5]
       //
       // kMulCoef (0x30)
+      // Performs a multiply-accumulate using a coefficient with complex bitfield logic.
+      // Can select accumulator, clear, invert, or bitwise NOT the coefficient, and store to IRAM.
+      // Reduces mulInputB_24 to 8 bits for the multiply.
 			case 0x30:
 			{
 				acc = (coef & 2);
@@ -292,6 +313,8 @@ public:
 				break;
 
       // (complex logic, see below. Unsupported in emulator?) (0x34)
+      // Handles special operations: writing to mulcoeffs, conditional jumps, double-precision MAC,
+      // ERAM/host writes, and reading ERAM latches. Sub-operations are selected by mem & 0xf.
 			case 0x34:
 				if (mem < 0xa0 || (mem & 0xf0) == 0xb0) {
 				  printf("Unexpected value for mem (%02x) with opcode 0x34\n", mem);
@@ -379,47 +402,60 @@ public:
 				break;
 
       // kStoreGRAM (0x38)
+      // Stores the saturated value of accA to GRAM at mempos.
       case 0x38: shared->gram[mempos] = mulInputA_24 = accA.getPipelineSat24(); break;
 
       // kStoreGRAM (0x3C)
+      // Stores the saturated value of accB to GRAM at mempos.
       case 0x3c: shared->gram[mempos] = mulInputA_24 = accB.getPipelineSat24(); break;
 			
 			// UNSAT/CLAMP
       // kStoreIRAMUnsat (0x40)
+      // Stores the raw (not saturated) value of accA to IRAM at mempos.
       case 0x40: iram[mempos] = mulInputA_24 = accA.getPipelineRaw24(); break;
 
       // kStoreIRAMUnsat (0x44)
+      // Stores the raw (not saturated) value of accA to IRAM at mempos, then clears accA.
       case 0x44: iram[mempos] = mulInputA_24 = accA.getPipelineRaw24(); clr = true; break;
 
       // kStoreIRAMRect (0x48)
+      // Stores the saturated value of accA to IRAM at mempos, but clamps negative values to zero.
       case 0x48: iram[mempos] = mulInputA_24 = std::max(0, accA.getPipelineSat24()); break;
 
       // kStoreIRAMRect (0x4C)
+      // Stores the saturated value of accA to IRAM at mempos, clamps negative values to zero, then clears accA.
       case 0x4c: iram[mempos] = mulInputA_24 = std::max(0, accA.getPipelineSat24()); clr = true; break;
 
       // kSetCondition (0x50)
+      // Sets the skipfield based on the sign of the accumulator, and clears the accumulator.
       case 0x50:
           clr = true;
           setcondition = true;
           break;
 
       // Mysterious opcode (0x54)
+      // Unused/unknown opcode. Prints a warning if executed.
       case 0x54: printf("Mysterious opcode 54 at pc = %04x\n", pc - 1); break;
 
       // kStoreIRAM (0x58)
+      // Stores the saturated value of accA to IRAM at mempos.
       case 0x58: iram[mempos] = mulInputA_24 = accA.getPipelineSat24(); break;
 
       // kStoreIRAM (0x5C)
+      // Stores the saturated value of accB to IRAM at mempos, sets acc flag to use accB.
       case 0x5c: acc = true; iram[mempos] = mulInputA_24 = accB.getPipelineSat24(); break;
 			
 			// TODO: mask 0x7fffff might be different, but the important thing is to remove the sign
       // kInterp (0x60)
+      // Bitwise inverts mulInputA_24 and masks to 24 bits (unsigned), for interpolation or special effects.
       case 0x60: mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
 
       // kInterp (0x64)
+      // Bitwise inverts mulInputA_24 and masks to 24 bits, then clears accumulator.
       case 0x64: clr = true; mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
 
       // kInterpStorePos (0x68)
+      // Stores the saturated value of accA to IRAM at mempos, then bitwise inverts if positive, and masks to 24 bits.
       case 0x68:
           iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
           if (mulInputA_24 >= 0) mulInputA_24 = ~mulInputA_24;
@@ -427,6 +463,7 @@ public:
           break;
 
       // kInterpStorePos (0x6C)
+      // Stores the saturated value of accA to IRAM at mempos, bitwise inverts if positive, masks to 24 bits, then clears accumulator.
       case 0x6c:
           iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
           if (mulInputA_24 >= 0) mulInputA_24 = ~mulInputA_24;
@@ -435,12 +472,15 @@ public:
           break;
 
       // kInterp (0x70)
+      // Bitwise inverts mulInputA_24 and masks to 24 bits (unsigned), for interpolation or special effects.
       case 0x70: mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
 
       // kInterp (0x74)
+      // Bitwise inverts mulInputA_24 and masks to 24 bits, then clears accumulator.
       case 0x74: clr = true; mulInputA_24 = (~mulInputA_24 & 0x7fffff); break;
 
       // kInterpStoreNeg (0x78)
+      // Stores the saturated value of accA to IRAM at mempos, then bitwise inverts if negative, and masks to 24 bits.
       case 0x78:
           iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
           if (mulInputA_24 < 0) mulInputA_24 = ~mulInputA_24;
@@ -448,6 +488,7 @@ public:
           break;
 
       // kInterpStoreNeg (0x7C)
+      // Stores the saturated value of accA to IRAM at mempos, bitwise inverts if negative, masks to 24 bits, then clears accumulator.
       case 0x7c:
           iram[mempos] = mulInputA_24 = accA.getPipelineSat24();
           if (mulInputA_24 < 0) mulInputA_24 = ~mulInputA_24;
@@ -455,6 +496,8 @@ public:
           clr = true;
           break;
 			
+			// Unknown/mysterious opcode
+      // Prints a warning if an unknown opcode is encountered.
 			default: printf("mysterious\n"); break; // TODO: few more opcodes here
 		}
 		
@@ -472,6 +515,8 @@ public:
 		mulResult >>= shift;
 		storeAcc += (int32_t)mulResult;
 
+    // TODO: What does this do? it looks like it sets mulInputA_24 to 0 for some instructions to
+    // come
 		skipfield >>= 1;
 		if (setcondition) skipfield |= (storeAcc.rawFull() < 0) ? 0x3c0 : 0x30;
 

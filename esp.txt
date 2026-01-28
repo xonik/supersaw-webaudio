@@ -1,4 +1,5 @@
 From presentation:
+Dual core
 Two program memory areas, 768 words each
 PR0: 24 bit
 PR1: 28 bit
@@ -6,6 +7,8 @@ PR1: 28 bit
 IRAM - Internal Ram
 GRAM - G-ram, not sure what it means, probably GLOBAL
   Ram as it is shared between cores
+
+  IRAM/GRAM not accessible from the host interface
 
 ERAM - External Ram (DRAM)
 Bytecode format: last 8 bits are signed coefficient (see below)

@@ -1,0 +1,34 @@
+opcode,name,target,clr,mulInputA_24,mulInputB_24,shift,setcondition,iram[],shared->gram[mempos],description
+0x00,kNop,acc A,false,N/A,N/A,N/A,false,N/A,N/A,No operation. Does nothing and continues to the next instruction.
+0x04,kStoreIRAM,acc A,true,N/A,N/A,N/A,false,N/A,N/A,Clears the selected accumulator (accA or accB) before the multiply-accumulate step.
+0x08,kStoreIRAM,acc A,true,accA.getPipelineSat24(),N/A,N/A,false,accA.getPipelineSat24(),N/A,Stores the saturated value of accA to IRAM at mempos, then clears accA.
+0x0C,kStoreIRAM,acc B,true,accB.getPipelineSat24(),N/A,N/A,false,accB.getPipelineSat24(),N/A,Stores the saturated value of accB to IRAM at mempos, then clears accB.
+0x10,kStoreIRAM,acc B,false,N/A,N/A,N/A,false,N/A,N/A,Sets the acc flag to use accB for the multiply-accumulate step, but does not clear.
+0x14,kStoreIRAM,acc B,true,N/A,N/A,N/A,false,N/A,N/A,Sets the acc flag to use accB and clears the accumulator before the multiply-accumulate step.
+0x18,kStoreIRAM,acc B,true,accA.getPipelineSat24(),N/A,N/A,false,accA.getPipelineSat24(),N/A,Stores the saturated value of accA to IRAM at mempos, sets acc flag, and clears accA.
+0x1C,kStoreIRAM,acc B,true,accB.getPipelineSat24(),N/A,N/A,false,accB.getPipelineSat24(),N/A,Stores the saturated value of accB to IRAM at mempos, sets acc flag, and clears accB.
+0x20,kReadGRAM,shiftbits&2,false,shared->gram[mempos],N/A,(shiftbits&1)?6:7,false,N/A,shared->gram[mempos],Reads a value from GRAM at mempos into mulInputA_24, sets acc flag and shift amount based on shiftbits.
+0x24,kReadGRAM,shiftbits&2,true,shared->gram[mempos],N/A,(shiftbits&1)?6:7,false,N/A,shared->gram[mempos],Reads a value from GRAM at mempos into mulInputA_24, sets acc flag, shift amount, and clears accumulator.
+0x28,Unknown,acc A,false,N/A,N/A,N/A,false,N/A,N/A,Unused/unknown opcode. Prints a warning if executed.
+0x2C,Unknown,acc A,false,N/A,N/A,N/A,false,N/A,N/A,Unused/unknown opcode. Prints a warning if executed.
+0x30,kMulCoef,coef&2,!(coef&1),see code,see code,see code,false,see code,N/A,Performs a multiply-accumulate using a coefficient with complex bitfield logic. Can select accumulator, clear, invert, or bitwise NOT the coefficient, and store to IRAM. Reduces mulInputB_24 to 8 bits for the multiply.
+0x34,Special,acc A,false,see code,see code,see code,false,see code,N/A,Handles special operations: writing to mulcoeffs, conditional jumps, double-precision MAC, ERAM/host writes, and reading ERAM latches. Sub-operations are selected by mem & 0xf.
+0x38,kStoreGRAM,acc A,false,accA.getPipelineSat24(),N/A,N/A,false,N/A,N/A,Stores the saturated value of accA to GRAM at mempos.
+0x3C,kStoreGRAM,acc B,false,accB.getPipelineSat24(),N/A,N/A,false,N/A,N/A,Stores the saturated value of accB to GRAM at mempos.
+0x40,kStoreIRAMUnsat,acc A,false,accA.getPipelineRaw24(),N/A,N/A,false,accA.getPipelineRaw24(),N/A,Stores the raw (not saturated) value of accA to IRAM at mempos.
+0x44,kStoreIRAMUnsat,acc A,true,accA.getPipelineRaw24(),N/A,N/A,false,accA.getPipelineRaw24(),N/A,Stores the raw (not saturated) value of accA to IRAM at mempos, then clears accA.
+0x48,kStoreIRAMRect,acc A,false,std::max(0, accA.getPipelineSat24()),N/A,N/A,false,std::max(0, accA.getPipelineSat24()),N/A,Stores the saturated value of accA to IRAM at mempos, but clamps negative values to zero.
+0x4C,kStoreIRAMRect,acc A,true,std::max(0, accA.getPipelineSat24()),N/A,N/A,false,std::max(0, accA.getPipelineSat24()),N/A,Stores the saturated value of accA to IRAM at mempos, clamps negative values to zero, then clears accA.
+0x50,kSetCondition,acc A,true,N/A,N/A,N/A,true,N/A,N/A,Sets the skipfield based on the sign of the accumulator, and clears the accumulator.
+0x54,Unknown,acc A,false,N/A,N/A,N/A,false,N/A,N/A,Unused/unknown opcode. Prints a warning if executed.
+0x58,kStoreIRAM,acc A,false,accA.getPipelineSat24(),N/A,N/A,false,accA.getPipelineSat24(),N/A,Stores the saturated value of accA to IRAM at mempos.
+0x5C,kStoreIRAM,acc B,false,accB.getPipelineSat24(),N/A,N/A,false,accB.getPipelineSat24(),N/A,Stores the saturated value of accB to IRAM at mempos, sets acc flag to use accB.
+0x60,kInterp,acc A,false,(~mulInputA_24 & 0x7fffff),N/A,N/A,false,N/A,N/A,Bitwise inverts mulInputA_24 and masks to 24 bits (unsigned), for interpolation or special effects.
+0x64,kInterp,acc A,true,(~mulInputA_24 & 0x7fffff),N/A,N/A,false,N/A,N/A,Bitwise inverts mulInputA_24 and masks to 24 bits, then clears accumulator.
+0x68,kInterpStorePos,acc A,false,see code,N/A,N/A,false,see code,N/A,Stores the saturated value of accA to IRAM at mempos, then bitwise inverts if positive, and masks to 24 bits.
+0x6C,kInterpStorePos,acc A,true,see code,N/A,N/A,false,see code,N/A,Stores the saturated value of accA to IRAM at mempos, bitwise inverts if positive, masks to 24 bits, then clears accumulator.
+0x70,kInterp,acc A,false,(~mulInputA_24 & 0x7fffff),N/A,N/A,false,N/A,N/A,Bitwise inverts mulInputA_24 and masks to 24 bits (unsigned), for interpolation or special effects.
+0x74,kInterp,acc A,true,(~mulInputA_24 & 0x7fffff),N/A,N/A,false,N/A,N/A,Bitwise inverts mulInputA_24 and masks to 24 bits, then clears accumulator.
+0x78,kInterpStoreNeg,acc A,false,see code,N/A,N/A,false,see code,N/A,Stores the saturated value of accA to IRAM at mempos, then bitwise inverts if negative, and masks to 24 bits.
+0x7C,kInterpStoreNeg,acc A,true,see code,N/A,N/A,false,see code,N/A,Stores the saturated value of accA to IRAM at mempos, bitwise inverts if negative, masks to 24 bits, then clears accumulator.
+
