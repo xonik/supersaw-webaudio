@@ -5,9 +5,7 @@ import { useAudioContext } from './hooks/useAudioContext';
 import { CanvasHelper } from './utils/canvasHelper';
 import {
     sampleRate,
-    createScriptSawNode,
     createOscillatorBank,
-    createFilter,
     createAnalyzerNode,
     createWavPlayerNode
 } from './utils/audioUtils';
@@ -19,38 +17,31 @@ function App() {
     // State for UI controls
     const [isPlaying, setIsPlaying] = useState(false);
     const [volume, setVolume] = useState(0.5);
-    const [analyzerVolume, setAnalyzerVolume] = useState(1);
-    const [mix, setMix] = useState(1);
-    const [balance, setBalance] = useState(0.5);
-    const [sawStates, setSawStates] = useState([true, true, true, true, true, true, true]);
-    const [highpassEnabled, setHighpassEnabled] = useState(true);
     const [logScaleX, setLogScaleX] = useState(true);
     const [logScaleY, setLogScaleY] = useState(false);
-    const [filterFreqOffset, setFilterFreqOffset] = useState(1);
-    const [pitch, setPitch] = useState(0);
-    const [lowpassCutoff, setLowpassCutoff] = useState(20000);
-    const [detune, setDetune] = useState(0);
+    const [plot3StartFreq, setPlot3StartFreq] = useState(20);
+    const [plot3EndFreq, setPlot3EndFreq] = useState(sampleRate / 2);
+    const [clickCount, setClickCount] = useState(0);
+    const [firstClickFreq, setFirstClickFreq] = useState(null);
 
     // Refs for audio nodes
     const audioNodesRef = useRef({});
     const canvasHelpersRef = useRef({});
 
     // Canvas setup callbacks
-    const handleCanvas1Ready = useCallback((canvas) => {
-        if (!canvasHelpersRef.current.plot1) {
-            canvasHelpersRef.current.plot1 = new CanvasHelper(canvas, 150);
-        }
-    }, []);
-
     const handleCanvas2Ready = useCallback((canvas) => {
         if (!canvasHelpersRef.current.plot2) {
-            canvasHelpersRef.current.plot2 = new CanvasHelper(canvas, 150);
+            console.log('Initializing plot2 canvas, width:', canvas.width, 'height:', canvas.height);
+            canvasHelpersRef.current.plot2 = new CanvasHelper(canvas, 450);
+            console.log('Plot2 canvas initialized, width:', canvas.width, 'height:', canvas.height);
         }
     }, []);
 
     const handleCanvas3Ready = useCallback((canvas) => {
         if (!canvasHelpersRef.current.plot3) {
-            canvasHelpersRef.current.plot3 = new CanvasHelper(canvas, 150);
+            console.log('Initializing plot3 canvas, width:', canvas.width, 'height:', canvas.height);
+            canvasHelpersRef.current.plot3 = new CanvasHelper(canvas, 450);
+            console.log('Plot3 canvas initialized, width:', canvas.width, 'height:', canvas.height);
         }
     }, []);
 
@@ -62,111 +53,63 @@ function App() {
         }
     }, []);
 
-    const handleAnalyzerVolumeChange = useCallback((value) => {
-        setAnalyzerVolume(value);
-        if (audioNodesRef.current.preAnalyzerGainNode1) {
-            audioNodesRef.current.preAnalyzerGainNode1.gain.value = value;
-        }
-        if (audioNodesRef.current.preAnalyzerGainNode2) {
-            audioNodesRef.current.preAnalyzerGainNode2.gain.value = value;
-        }
-    }, []);
-
-    const handleMixChange = useCallback((value) => {
-        setMix(value);
-        if (audioNodesRef.current.scriptNode) {
-            audioNodesRef.current.scriptNode.setMix(value);
-        }
-        if (audioNodesRef.current.oscillatorBankNode) {
-            audioNodesRef.current.oscillatorBankNode.setMix(value);
+    // Function to convert x position to frequency
+    const xToFreq = useCallback((x, canvasWidth, startFreq, endFreq, isLog) => {
+        const fraction = x / canvasWidth;
+        if (isLog) {
+            // Logarithmic scale
+            return startFreq * Math.pow(endFreq / startFreq, fraction);
+        } else {
+            // Linear scale
+            return startFreq + (endFreq - startFreq) * fraction;
         }
     }, []);
 
-    const handleBalanceChange = useCallback((value) => {
-        setBalance(value);
-        if (audioNodesRef.current.gainNode1) {
-            audioNodesRef.current.gainNode1.gain.value = 1 - value;
-        }
-        if (audioNodesRef.current.gainNode2) {
-            audioNodesRef.current.gainNode2.gain.value = value;
-        }
-    }, []);
+    // Handle clicks on plot2 canvas
+    const handlePlot2Click = useCallback((x, y, canvasWidth, canvasHeight) => {
+        const freq = xToFreq(x, canvasWidth, 20, sampleRate / 2, logScaleX);
 
-    const handleSawToggle = useCallback((index, checked) => {
-        setSawStates(prev => {
-            const newStates = [...prev];
-            newStates[index] = checked;
-            return newStates;
-        });
-        if (audioNodesRef.current.scriptNode) {
-            audioNodesRef.current.scriptNode.toggleOn(index, checked);
-        }
-        if (audioNodesRef.current.oscillatorBankNode) {
-            audioNodesRef.current.oscillatorBankNode.toggleOn(index, checked);
-        }
-    }, []);
+        if (clickCount === 0) {
+            // First click
+            setFirstClickFreq(freq);
+            setClickCount(1);
+            console.log('First click frequency:', freq);
+        } else {
+            // Second click - set the range
+            const startFreq = Math.min(firstClickFreq, freq);
+            const endFreq = Math.max(firstClickFreq, freq);
+            setPlot3StartFreq(startFreq);
+            setPlot3EndFreq(endFreq);
+            setClickCount(0);
+            setFirstClickFreq(null);
+            console.log('First click was:', firstClickFreq, 'Hz');
+            console.log('Second click is:', freq, 'Hz');
+            console.log('Plot3 frequency range set:', startFreq, 'Hz -', endFreq, 'Hz');
 
-    const handleHighpassToggle = useCallback((checked) => {
-        setHighpassEnabled(checked);
-        if (audioNodesRef.current.hpfNode1) {
-            audioNodesRef.current.hpfNode1.toggleOn(checked);
-        }
-        if (audioNodesRef.current.hpfNode2) {
-            audioNodesRef.current.hpfNode2.toggleOn(checked);
-        }
-    }, []);
+            // Recreate plot3 analyzer with new range if playing
+            if (audioNodesRef.current.analyserNode3 && audioNodesRef.current.analyserNode2 && audioNodesRef.current.outputGainNode) {
+                // Disconnect old analyzer3
+                audioNodesRef.current.analyserNode3.disconnect();
 
-    const handleFilterFreqOffsetChange = useCallback((value) => {
-        setFilterFreqOffset(value);
-        if (audioNodesRef.current.hpfNode1) {
-            audioNodesRef.current.hpfNode1.setOffset(value);
-        }
-        if (audioNodesRef.current.hpfNode2) {
-            audioNodesRef.current.hpfNode2.setOffset(value);
-        }
-    }, []);
+                // Create new analyzer3 with updated range
+                audioNodesRef.current.analyserNode3 = createAnalyzerNode(
+                    audioCtx,
+                    canvasHelpersRef.current.plot3,
+                    sampleRate,
+                    logScaleX,
+                    logScaleY,
+                    true,
+                    startFreq,
+                    endFreq,
+                    8192
+                );
 
-    const handlePitchChange = useCallback((value) => {
-        setPitch(value);
-        const fraction = value / 1200;
-        const lowestFreq = 20;
-        const highestFreq = 10000;
-        const freq = lowestFreq + (highestFreq - lowestFreq) * fraction;
-
-        if (audioNodesRef.current.scriptNode) {
-            audioNodesRef.current.scriptNode.setFrequency(freq);
+                // Reconnect the audio chain: analyser2 → analyser3 → outputGainNode
+                audioNodesRef.current.analyserNode2.connect(audioNodesRef.current.analyserNode3);
+                audioNodesRef.current.analyserNode3.connect(audioNodesRef.current.outputGainNode);
+            }
         }
-        if (audioNodesRef.current.oscillatorBankNode) {
-            audioNodesRef.current.oscillatorBankNode.setFrequency(freq);
-        }
-        if (audioNodesRef.current.hpfNode1) {
-            audioNodesRef.current.hpfNode1.setFrequency(freq);
-        }
-        if (audioNodesRef.current.hpfNode2) {
-            audioNodesRef.current.hpfNode2.setFrequency(freq);
-        }
-    }, []);
-
-    const handleLowpassCutoffChange = useCallback((value) => {
-        setLowpassCutoff(value);
-        if (audioNodesRef.current.lpfNode1) {
-            audioNodesRef.current.lpfNode1.setFrequency(value);
-        }
-        if (audioNodesRef.current.lpfNode2) {
-            audioNodesRef.current.lpfNode2.setFrequency(value);
-        }
-    }, []);
-
-    const handleDetuneChange = useCallback((value) => {
-        setDetune(value);
-        const detuneAmount = value / 128;
-        if (audioNodesRef.current.scriptNode) {
-            audioNodesRef.current.scriptNode.setDetuneAmount(detuneAmount);
-        }
-        if (audioNodesRef.current.oscillatorBankNode) {
-            audioNodesRef.current.oscillatorBankNode.setDetuneAmount(detuneAmount);
-        }
-    }, []);
+    }, [clickCount, firstClickFreq, logScaleX, logScaleY, audioCtx, xToFreq]);
 
     const handlePlay = useCallback(async () => {
         if (!audioCtx || isPlaying) return;
@@ -174,25 +117,8 @@ function App() {
 
         const nodes = {};
 
-        // Create all audio nodes
-        nodes.scriptNode = createScriptSawNode(audioCtx, sampleRate);
-        nodes.hpfNode1 = createFilter(audioCtx, 'highpass', 1, 10);
-        nodes.lpfNode1 = createFilter(audioCtx, 'lowpass', 4, 20000);
-        nodes.preAnalyzerGainNode1 = audioCtx.createGain();
-        nodes.analyserNode1 = createAnalyzerNode(
-            audioCtx,
-            canvasHelpersRef.current.plot1,
-            sampleRate,
-            logScaleX,
-            logScaleY,
-            true
-        );
-        nodes.gainNode1 = audioCtx.createGain();
-
+        // Create oscillator bank and analyzers
         nodes.oscillatorBankNode = createOscillatorBank(audioCtx, 0, 1, 1);
-        nodes.hpfNode2 = createFilter(audioCtx, 'highpass', 1, 10);
-        nodes.lpfNode2 = createFilter(audioCtx, 'lowpass', 4, 20000);
-        nodes.preAnalyzerGainNode2 = audioCtx.createGain();
         nodes.analyserNode2 = createAnalyzerNode(
             audioCtx,
             canvasHelpersRef.current.plot2,
@@ -201,34 +127,28 @@ function App() {
             logScaleY,
             true
         );
-        nodes.gainNode2 = audioCtx.createGain();
+        nodes.analyserNode3 = createAnalyzerNode(
+            audioCtx,
+            canvasHelpersRef.current.plot3,
+            sampleRate,
+            logScaleX,
+            logScaleY,
+            true,
+            plot3StartFreq,
+            plot3EndFreq,
+            8192
+        );
 
         nodes.outputGainNode = audioCtx.createGain();
 
         // Apply current control values
         nodes.outputGainNode.gain.value = volume;
-        nodes.preAnalyzerGainNode1.gain.value = analyzerVolume;
-        nodes.preAnalyzerGainNode2.gain.value = analyzerVolume;
-        nodes.gainNode1.gain.value = 1 - balance;
-        nodes.gainNode2.gain.value = balance;
 
-        // Connect audio graph for script version
-        /*
-        nodes.scriptNode.connect(nodes.hpfNode1.node);
-        nodes.hpfNode1.connect(nodes.lpfNode1.node);
-        nodes.lpfNode1.connect(nodes.preAnalyzerGainNode1);
-        //nodes.preAnalyzerGainNode1.connect(nodes.analyserNode1);
-        nodes.analyserNode1.connect(nodes.gainNode1);
-        nodes.gainNode1.connect(nodes.outputGainNode);
+        // Connect audio graph
+        nodes.oscillatorBankNode.connect(nodes.analyserNode2);
+        nodes.analyserNode2.connect(nodes.analyserNode3);
+        nodes.analyserNode3.connect(nodes.outputGainNode);
 
-        // Connect audio graph for oscillator bank version
-        nodes.oscillatorBankNode.connect(nodes.hpfNode2.node);
-        nodes.hpfNode2.connect(nodes.lpfNode2.node);
-        nodes.lpfNode2.connect(nodes.preAnalyzerGainNode2);
-        //nodes.preAnalyzerGainNode2.connect(nodes.analyserNode2);
-        nodes.analyserNode2.connect(nodes.gainNode2);
-        nodes.gainNode2.connect(nodes.outputGainNode);
-        */
         // Load WAV file if available
         try {
             nodes.wavInputNode = await createWavPlayerNode(audioCtx, '/je8086_out.wav');
@@ -242,24 +162,7 @@ function App() {
 
         // Store references
         audioNodesRef.current = nodes;
-
-        // Apply initial settings
-        handleDetuneChange(detune);
-        handlePitchChange(pitch);
-        handleMixChange(mix);
-        handleFilterFreqOffsetChange(filterFreqOffset);
-        handleLowpassCutoffChange(lowpassCutoff);
-        handleHighpassToggle(highpassEnabled);
-        sawStates.forEach((checked, i) => {
-            if (nodes.scriptNode) nodes.scriptNode.toggleOn(i, checked);
-            if (nodes.oscillatorBankNode) nodes.oscillatorBankNode.toggleOn(i, checked);
-        });
-    }, [
-        audioCtx, isPlaying, volume, analyzerVolume, balance, logScaleX, logScaleY,
-        detune, pitch, mix, filterFreqOffset, lowpassCutoff, highpassEnabled, sawStates,
-        handleDetuneChange, handlePitchChange, handleMixChange,
-        handleFilterFreqOffsetChange, handleLowpassCutoffChange, handleHighpassToggle
-    ]);
+    }, [audioCtx, isPlaying, volume, logScaleX, logScaleY, plot3StartFreq, plot3EndFreq]);
 
     const handleStop = useCallback(() => {
         if (!isPlaying) return;
@@ -289,32 +192,17 @@ function App() {
                 onStop={handleStop}
                 volume={volume}
                 onVolumeChange={handleVolumeChange}
-                analyzerVolume={analyzerVolume}
-                onAnalyzerVolumeChange={handleAnalyzerVolumeChange}
-                mix={mix}
-                onMixChange={handleMixChange}
-                balance={balance}
-                onBalanceChange={handleBalanceChange}
-                sawStates={sawStates}
-                onSawToggle={handleSawToggle}
-                highpassEnabled={highpassEnabled}
-                onHighpassToggle={handleHighpassToggle}
                 logScaleX={logScaleX}
                 onLogScaleXToggle={setLogScaleX}
                 logScaleY={logScaleY}
                 onLogScaleYToggle={setLogScaleY}
-                filterFreqOffset={filterFreqOffset}
-                onFilterFreqOffsetChange={handleFilterFreqOffsetChange}
-                pitch={pitch}
-                onPitchChange={handlePitchChange}
-                lowpassCutoff={lowpassCutoff}
-                onLowpassCutoffChange={handleLowpassCutoffChange}
-                detune={detune}
-                onDetuneChange={handleDetuneChange}
             />
 
-            <SpectrumCanvas canvasId="plot1" onCanvasReady={handleCanvas1Ready} />
-            <SpectrumCanvas canvasId="plot2" onCanvasReady={handleCanvas2Ready} />
+            <SpectrumCanvas
+                canvasId="plot2"
+                onCanvasReady={handleCanvas2Ready}
+                onClick={handlePlot2Click}
+            />
             <SpectrumCanvas canvasId="plot3" onCanvasReady={handleCanvas3Ready} />
         </div>
     );
