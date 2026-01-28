@@ -1,7 +1,7 @@
 // Common canvas helper for plot setup, resizing, clearing, and axis/grid drawing
-class CanvasHelper {
-    constructor(id, height = 150) {
-        this.canvas = document.getElementById(id);
+export class CanvasHelper {
+    constructor(canvasRef, height = 150) {
+        this.canvas = canvasRef;
         this.ctx = this.canvas.getContext('2d');
         this.setSize(window.innerWidth, height);
         this.clear('#111');
